@@ -26,3 +26,6 @@ workspace/
 output/
 templates/registry.json
 .locks/
+*.docx
+*.xlsx
+*.pptx
