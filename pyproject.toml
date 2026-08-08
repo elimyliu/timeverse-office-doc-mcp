@@ -59,8 +59,8 @@ dev = [
 timeverse-office-doc-mcp = "timeverse_office_doc_mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/timeverse/timeverse-office-doc-mcp"
-Issues = "https://github.com/timeverse/timeverse-office-doc-mcp/issues"
+Homepage = "https://github.com/elimyliu/timeverse-office-doc-mcp"
+Issues = "https://github.com/elimyliu/timeverse-office-doc-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/timeverse_office_doc_mcp"]
