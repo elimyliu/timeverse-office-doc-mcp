@@ -1,7 +1,7 @@
 """MCP Server 主入口 - timeverse-office-doc-mcp。
 
 使用 mcp SDK 原生 Server 类，stdio 传输。
-Phase 3 注册 Word(21) + Excel(24) + PPT(19) + PDF(19) + Doc(10) 共 93 个工具。
+注册 Word(21) + Excel(24) + PPT(19) + PDF(19) + Doc(10) 共 93 个工具。
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from typing import Any
 
 from mcp.server import Server
@@ -1537,8 +1538,6 @@ async def call_tool(
     arguments: dict[str, Any],
 ) -> list[TextContent]:
     """处理工具调用：路由到对应 handler 并返回结果。"""
-    import time
-
     handler = TOOL_HANDLERS.get(name)
     if handler is None:
         return [TextContent(type="text", text=f"Error: 未知工具 '{name}'")]
@@ -1601,7 +1600,7 @@ def main() -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
     ensure_dirs()
-    logger.info("Starting timeverse-office-doc-mcp (stdio)...")
+    logger.info("Starting timeverse-office-doc-mcp (stdio) with %d tools", len(TOOL_DEFINITIONS))
     asyncio.run(_run_stdio())
 
 

@@ -146,11 +146,9 @@ class TestDocSession:
         # 保存 Session
         doc_handler.doc_save_session(session_id)
         # 实际写盘需要调用 document.save
-        doc = doc_handler.session_manager.get_document(session_id) if hasattr(doc_handler, "session_manager") else None
-        if doc is None:
-            from timeverse_office_doc_mcp.common.session import session_manager
+        from timeverse_office_doc_mcp.common.session import session_manager
 
-            doc = session_manager.get_document(session_id)
+        doc = session_manager.get_session(session_id).document
         doc.save(docx_path)
 
         # 关闭 Session

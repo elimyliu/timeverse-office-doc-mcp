@@ -25,3 +25,4 @@ Thumbs.db
 workspace/
 output/
 templates/registry.json
+.locks/

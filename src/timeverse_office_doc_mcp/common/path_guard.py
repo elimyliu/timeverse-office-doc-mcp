@@ -10,6 +10,9 @@ from pathlib import Path
 from ..config import SecurityConfig
 from .error_handler import ToolError
 
+# 最大文件大小限制（字节），100MB
+_MAX_FILE_SIZE = 100 * 1024 * 1024
+
 
 class PathGuard:
     """路径安全守卫 - 所有文件操作限制在白名单目录内。"""
@@ -24,7 +27,7 @@ class PathGuard:
             Path(d).resolve() for d in (allowed_dirs or SecurityConfig.ALLOWED_DIRS)
         ]
         self.blocked_patterns = blocked_patterns or SecurityConfig.BLOCKED_PATTERNS
-        self.max_file_size = max_file_size or SecurityConfig.MAX_FILE_SIZE
+        self.max_file_size = max_file_size or _MAX_FILE_SIZE
 
     def validate_path(self, file_path: str, operation: str = "read") -> str:
         """校验文件路径是否安全。

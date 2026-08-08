@@ -27,6 +27,7 @@ from ..common.file_lock import file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
+from ..common.template_utils import fill_ppt_variables
 from ..common.validator import InputValidator
 
 logger = logging.getLogger("timeverse_office_doc_mcp.ppt")
@@ -97,12 +98,7 @@ _THEME_COLORS: dict[str, dict[str, str]] = {
 def _get_presentation(filename: str, session_id: str | None = None) -> Presentation:
     """获取 Presentation 对象：Session 模式从内存取，否则从磁盘打开。"""
     if session_id:
-        session = session_manager.get_session(session_id)
-        if session.format != "ppt":
-            raise ToolError(
-                f"Session {session_id} 不是 PowerPoint 文档（当前格式: {session.format}）"
-            )
-        return session.document
+        return session_manager.get_document(session_id, "ppt")
     validated = path_guard.validate_path(filename, "read")
     return Presentation(validated)
 
@@ -133,46 +129,6 @@ def _emu_to_inches(emu: int | None) -> float | None:
     if emu is None:
         return None
     return round(emu / _EMU_PER_INCH, 2)
-
-
-def _fill_template_variables(prs: Presentation, variables: dict[str, Any]) -> int:
-    """填充演示文稿中的 {{variable}} 占位符，返回替换数量。"""
-    count = 0
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                count += _replace_in_text_frame(shape.text_frame, variables)
-            if shape.has_table:
-                for row in shape.table.rows:
-                    for cell in row.cells:
-                        count += _replace_in_text_frame(cell.text_frame, variables)
-    return count
-
-
-def _replace_in_text_frame(text_frame: Any, variables: dict[str, Any]) -> int:
-    """在文本框中替换占位符，返回替换次数。"""
-    count = 0
-    for paragraph in text_frame.paragraphs:
-        for run in paragraph.runs:
-            if "{{" in run.text:
-                new_text = _replace_placeholders(run.text, variables)
-                if new_text != run.text:
-                    run.text = new_text
-                    count += 1
-    return count
-
-
-def _replace_placeholders(text: str, variables: dict[str, Any]) -> str:
-    """替换文本中的 {{variable}} 占位符。"""
-
-    def replacer(match: re.Match[str]) -> str:
-        key = match.group(1).strip()
-        value = variables.get(key)
-        if value is None:
-            return ""
-        return str(value)
-
-    return re.sub(r"\{\{([^}]+)\}\}", replacer, text)
 
 
 def _get_theme_part(prs: Presentation) -> Any:
@@ -266,7 +222,7 @@ def ppt_create_presentation(
         if fmt != "ppt":
             raise ToolError(f"模板 '{template}' 是 {fmt} 格式，不是 ppt")
         prs = Presentation(tpl_path)
-        replaced = _fill_template_variables(prs, variables) if variables else 0
+        replaced = fill_ppt_variables(prs, variables) if variables else 0
     else:
         prs = Presentation()
         replaced = 0
@@ -771,7 +727,8 @@ def ppt_get_slide_notes(
 
 def ppt_analyze_structure(filename: str, session_id: str | None = None) -> dict[str, Any]:
     """分析结构（幻灯片分布、元素统计、布局分析）。"""
-    prs = _get_presentation(filename, session_id)
+    structure = ppt_get_structure(filename, session_id)
+
     type_dist: dict[str, int] = {}
     layout_dist: dict[str, int] = {}
     slide_details: list[dict[str, Any]] = []
@@ -779,37 +736,38 @@ def ppt_analyze_structure(filename: str, session_id: str | None = None) -> dict[
     total_chars = 0
     notes_count = 0
 
-    for idx, slide in enumerate(prs.slides):
-        layout_name = slide.slide_layout.name
+    for slide in structure["slides"]:
+        layout_name = slide["layout"]
         layout_dist[layout_name] = layout_dist.get(layout_name, 0) + 1
         shape_types: dict[str, int] = {}
         slide_chars = 0
-        for shape in slide.shapes:
-            type_name = _shape_type_name(shape)
+        for shape in slide["shapes"]:
+            type_name = shape["type"]
             type_dist[type_name] = type_dist.get(type_name, 0) + 1
             shape_types[type_name] = shape_types.get(type_name, 0) + 1
-            if shape.has_text_frame:
-                slide_chars += len(shape.text_frame.text)
-            total_shapes += 1
+            if "text" in shape:
+                slide_chars += len(shape["text"])
+        total_shapes += slide["shape_count"]
         total_chars += slide_chars
-        if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+        if slide["notes"].strip():
             notes_count += 1
         slide_details.append(
             {
-                "slide_idx": idx,
+                "slide_idx": slide["slide_idx"],
                 "layout": layout_name,
-                "shape_count": len(slide.shapes),
+                "shape_count": slide["shape_count"],
                 "shape_types": shape_types,
                 "text_chars": slide_chars,
             }
         )
 
-    avg_shapes = round(total_shapes / len(prs.slides), 2) if prs.slides else 0.0
+    slide_count = structure["slide_count"]
+    avg_shapes = round(total_shapes / slide_count, 2) if slide_count else 0.0
     return {
         "filename": filename,
-        "slide_count": len(prs.slides),
-        "slide_width": _emu_to_inches(prs.slide_width),
-        "slide_height": _emu_to_inches(prs.slide_height),
+        "slide_count": slide_count,
+        "slide_width": structure["slide_width"],
+        "slide_height": structure["slide_height"],
         "total_shapes": total_shapes,
         "avg_shapes_per_slide": avg_shapes,
         "total_text_chars": total_chars,

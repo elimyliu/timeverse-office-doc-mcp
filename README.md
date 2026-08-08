@@ -79,10 +79,6 @@
 
 对文件名、Excel 区域引用、表格行列数、文本长度等进行严格校验，防止注入与资源耗尽。
 
-### 8. 按需启用格式
-
-通过 `ENABLED_FORMATS` 环境变量可按需启用 `word`、`excel`、`ppt`、`pdf` 中的子集，减少不必要的工具暴露。
-
 ---
 
 ## 详细的能力清单
@@ -631,26 +627,21 @@ ppt_apply_theme(filename="产品发布.pptx", theme_name="blue")
 
 ## 环境变量
 
+本项目设计为零配置开箱即用，以下环境变量均为可选：
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `OFFICE_ALLOWED_DIRS` | - | 自定义白名单根目录（逗号分隔多个） |
-| `OFFICE_WORKSPACE` | `./workspace` | 工作目录 |
-| `OFFICE_OUTPUT` | `./output` | 输出目录 |
+| `OFFICE_ALLOWED_DIRS` | - | 自定义白名单根目录（逗号分隔多个），默认已包含启动目录 |
 | `OFFICE_TEMPLATES` | `./templates` | 模板库目录 |
-| `ENABLED_FORMATS` | `word,excel,ppt,pdf` | 按需启用格式（逗号分隔） |
-| `MAX_FILE_SIZE` | `104857600` | 最大文件大小（字节，默认 100MB） |
-| `OPERATION_TIMEOUT` | `60` | 操作超时（秒） |
-| `SESSION_TTL` | `3600` | Session 过期时间（秒，默认 1 小时） |
-| `SESSION_ENABLED` | `true` | 是否启用 Session 内存编辑 |
-| `LOG_LEVEL` | `INFO` | 日志级别 |
-| `MCP_TRANSPORT` | `stdio` | 传输方式 |
-| `USE_PYMUPDF` | `false` | 是否启用 PyMuPDF 高性能模式 |
-| `RATE_LIMIT_ENABLED` | `true` | 速率限制开关 |
-| `RATE_LIMIT_MAX` | `60` | 每分钟最大请求数 |
-| `AUTH_ENABLED` | `false` | HTTP/SSE 认证开关 |
-| `API_KEYS` | - | API 密钥列表（逗号分隔） |
-| `SANITIZE_ENABLED` | `false` | 敏感数据脱敏开关 |
-| `SANITIZE_FIELDS` | `phone,email,id_card,bank_card` | 脱敏字段 |
+| `SANITIZE_ENABLED` | `false` | 审计日志敏感数据脱敏开关 |
+| `SANITIZE_FIELDS` | `phone,email,id_card,bank_card` | 脱敏字段类型 |
+
+> **为什么不需要配置速率限制、超时、Session TTL 等？**
+>
+> 本项目基于 MCP stdio 协议，单客户端顺序通信，天然不存在并发争抢，无需速率限制。
+> 文件大小、表格行列数、文本长度等安全限制已硬编码在代码中，无需用户调整。
+> Session 过期时间（1 小时）作为内部常量管理，用户无需关心。
+> 未来若增加 HTTP/SSE 多客户端传输，相关配置会随之引入。
 
 ---
 

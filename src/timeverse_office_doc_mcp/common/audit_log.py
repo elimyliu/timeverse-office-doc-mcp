@@ -7,11 +7,22 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..config import SecurityConfig
+
 logger = logging.getLogger("timeverse_office_doc_mcp.audit")
+
+# 敏感字段对应的正则模式
+_SANITIZE_PATTERNS: dict[str, re.Pattern[str]] = {
+    "phone": re.compile(r"1[3-9]\d{9}"),
+    "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    "id_card": re.compile(r"\d{17}[\dXx]"),
+    "bank_card": re.compile(r"\d{16,19}"),
+}
 
 
 class AuditLogger:
@@ -55,7 +66,7 @@ class AuditLogger:
             logger.warning("Failed to write audit log to %s", self.log_path)
 
     def _summarize_args(self, args: dict[str, Any]) -> dict[str, Any]:
-        """参数摘要：截断过长的值，避免日志膨胀。"""
+        """参数摘要：截断过长的值，避免日志膨胀；按配置脱敏敏感字段。"""
         summary: dict[str, Any] = {}
         for key, value in args.items():
             if isinstance(value, str) and len(value) > 200:
@@ -64,7 +75,22 @@ class AuditLogger:
                 summary[key] = f"[{len(value)} items]"
             else:
                 summary[key] = value
+        if SecurityConfig.SANITIZE_ENABLED:
+            summary = self._sanitize(summary)
         return summary
+
+    def _sanitize(self, data: dict[str, Any]) -> dict[str, Any]:
+        """对参数值中的敏感信息进行掩码处理。"""
+        fields = SecurityConfig.SANITIZE_FIELDS
+        for key, value in data.items():
+            if not isinstance(value, str):
+                continue
+            for field in fields:
+                pattern = _SANITIZE_PATTERNS.get(field)
+                if pattern:
+                    value = pattern.sub(lambda m: m.group()[:3] + "***", value)
+            data[key] = value
+        return data
 
 
 # 全局单例

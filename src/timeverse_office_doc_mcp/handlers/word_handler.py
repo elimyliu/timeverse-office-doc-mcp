@@ -12,14 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
+from lxml import etree
 
 from ..common.error_handler import ToolError
 from ..common.file_lock import file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
+from ..common.template_utils import fill_word_variables
 from ..common.validator import InputValidator
 
 logger = logging.getLogger("timeverse_office_doc_mcp.word")
@@ -31,10 +34,7 @@ logger = logging.getLogger("timeverse_office_doc_mcp.word")
 def _get_document(filename: str, session_id: str | None = None) -> Document:
     """获取 Document 对象：Session 模式从内存取，否则从磁盘打开。"""
     if session_id:
-        session = session_manager.get_session(session_id)
-        if session.format != "word":
-            raise ToolError(f"Session {session_id} 不是 Word 文档（当前格式: {session.format}）")
-        return session.document
+        return session_manager.get_document(session_id, "word")
     validated = path_guard.validate_path(filename, "read")
     return Document(validated)
 
@@ -50,45 +50,6 @@ def _save_document(doc: Document, filename: str, session_id: str | None = None) 
             doc.save(validated)
         finally:
             file_lock_mgr.release(validated)
-
-
-def _fill_template_variables(doc: Document, variables: dict[str, Any]) -> int:
-    """填充模板占位符 {{variable}}，返回替换数量。"""
-    count = 0
-    for paragraph in doc.paragraphs:
-        if "{{" in paragraph.text:
-            for run in paragraph.runs:
-                if "{{" in run.text:
-                    new_text = _replace_placeholders(run.text, variables)
-                    if new_text != run.text:
-                        run.text = new_text
-                        count += 1
-    # 表格单元格
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        if "{{" in run.text:
-                            new_text = _replace_placeholders(run.text, variables)
-                            if new_text != run.text:
-                                run.text = new_text
-                                count += 1
-    return count
-
-
-def _replace_placeholders(text: str, variables: dict[str, Any]) -> str:
-    """替换文本中的 {{variable}} 占位符。"""
-    import re
-
-    def replacer(match: re.Match[str]) -> str:
-        key = match.group(1)
-        value = variables.get(key)
-        if value is None:
-            return ""
-        return str(value)
-
-    return re.sub(r"\{\{([^}]+)\}\}", replacer, text)
 
 
 # ==================== 5.1.1 文档管理（6 个） ====================
@@ -112,7 +73,7 @@ def word_create_document(
         if fmt != "word":
             raise ToolError(f"模板 '{template}' 是 {fmt} 格式，不是 word")
         doc = Document(tpl_path)
-        replaced = _fill_template_variables(doc, variables) if variables else 0
+        replaced = fill_word_variables(doc, variables) if variables else 0
     else:
         doc = Document()
         replaced = 0
@@ -410,8 +371,6 @@ def word_set_header_footer(
 
 def _make_element(tag: str, attrs: dict[str, str], text: str = "") -> Any:
     """创建 XML 元素（用于页码域代码）。"""
-    from lxml import etree
-
     elem = etree.SubElement(etree.Element("dummy"), qn(tag))
     for k, v in attrs.items():
         elem.set(qn(k), v)
@@ -431,8 +390,6 @@ def word_generate_toc(
     para = doc.add_paragraph()
     run = para.add_run()
     # 插入 TOC 域代码
-    from lxml import etree
-
     fldChar_begin = etree.SubElement(run._r, qn("w:fldChar"))
     fldChar_begin.set(qn("w:fldCharType"), "begin")
 
@@ -521,17 +478,29 @@ def word_format_table(
 
     table = doc.tables[table_idx]
 
-    # 设置表格样式
+    # 设置表头加粗
     if header_row and len(table.rows) > 0:
         for cell in table.rows[0].cells:
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
                     run.font.bold = True
 
+    # 设置边框
+    if border_style:
+        tbl_pr = table._tbl.tblPr
+        existing_borders = tbl_pr.find(qn("w:tblBorders"))
+        if existing_borders is not None:
+            tbl_pr.remove(existing_borders)
+        borders = etree.SubElement(tbl_pr, qn("w:tblBorders"))
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            border_elem = etree.SubElement(borders, qn(f"w:{edge}"))
+            border_elem.set(qn("w:val"), border_style)
+            border_elem.set(qn("w:sz"), "4")
+            border_elem.set(qn("w:space"), "0")
+            border_elem.set(qn("w:color"), "000000")
+
     # 设置底纹
     if shading:
-        from lxml import etree
-
         for row in table.rows:
             for cell in row.cells:
                 tc_pr = cell._tc.get_or_add_tcPr()
@@ -613,7 +582,6 @@ def word_create_style(
     """创建自定义样式。"""
     doc = _get_document(filename, session_id)
     styles = doc.styles
-    from docx.enum.style import WD_STYLE_TYPE
 
     if style_name in [s.name for s in styles]:
         raise ToolError(f"样式已存在: {style_name}")

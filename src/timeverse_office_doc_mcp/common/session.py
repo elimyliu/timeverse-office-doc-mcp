@@ -13,10 +13,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import ServerConfig
 from .error_handler import ToolError
 
 logger = logging.getLogger("timeverse_office_doc_mcp.session")
+
+# Session 默认过期时间（秒），1 小时无访问自动清理
+_DEFAULT_SESSION_TTL = 3600
 
 
 @dataclass
@@ -36,7 +38,7 @@ class SessionManager:
     """Session 管理器 - 在内存中维护打开的文档。"""
 
     def __init__(self, ttl: int | None = None) -> None:
-        self.ttl = ttl or ServerConfig.SESSION_TTL
+        self.ttl = ttl or _DEFAULT_SESSION_TTL
         self._sessions: dict[str, Session] = {}
 
     def open_session(self, filename: str, format: str, document: Any) -> str:
@@ -59,9 +61,17 @@ class SessionManager:
         session.last_accessed = time.time()
         return session
 
-    def get_document(self, session_id: str) -> Any:
-        """获取 Session 中的文档对象。"""
-        return self.get_session(session_id).document
+    def get_document(self, session_id: str, expected_format: str | None = None) -> Any:
+        """获取 Session 中的文档对象。
+
+        expected_format 不为 None 时校验格式是否匹配，不匹配则抛出 ToolError。
+        """
+        session = self.get_session(session_id)
+        if expected_format and session.format != expected_format:
+            raise ToolError(
+                f"Session {session_id} 不是 {expected_format} 文档（当前格式: {session.format}）"
+            )
+        return session.document
 
     def mark_modified(self, session_id: str) -> None:
         """标记 Session 已修改。"""
@@ -81,11 +91,12 @@ class SessionManager:
 
     def close_session(self, session_id: str, save: bool = False) -> None:
         """关闭 Session 并释放内存。"""
-        session = self._sessions.pop(session_id, None)
+        session = self._sessions.get(session_id)
         if session is None:
             raise ToolError(f"Session 不存在或已关闭: {session_id}")
         if save:
             self.save_session(session_id)
+        self._sessions.pop(session_id, None)
         logger.info("Closed session %s", session_id)
 
     def list_sessions(self) -> list[dict[str, Any]]:

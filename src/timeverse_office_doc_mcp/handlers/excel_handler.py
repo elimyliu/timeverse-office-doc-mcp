@@ -8,10 +8,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import BarChart, LineChart, PieChart
-from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
+from openpyxl.styles import Alignment, Border, PatternFill, Side
 from openpyxl.utils import get_column_letter, range_boundaries
 
 from ..common.error_handler import ToolError
@@ -19,6 +20,7 @@ from ..common.file_lock import file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
+from ..common.template_utils import fill_excel_variables
 from ..common.validator import InputValidator
 
 logger = logging.getLogger("timeverse_office_doc_mcp.excel")
@@ -30,10 +32,7 @@ logger = logging.getLogger("timeverse_office_doc_mcp.excel")
 def _get_workbook(filename: str, session_id: str | None = None) -> Workbook:
     """获取 Workbook 对象：Session 模式从内存取，否则从磁盘打开。"""
     if session_id:
-        session = session_manager.get_session(session_id)
-        if session.format != "excel":
-            raise ToolError(f"Session {session_id} 不是 Excel 文档")
-        return session.document
+        return session_manager.get_document(session_id, "excel")
     validated = path_guard.validate_path(filename, "read")
     return load_workbook(validated)
 
@@ -77,7 +76,7 @@ def excel_create_workbook(
         if fmt != "excel":
             raise ToolError(f"模板 '{template}' 是 {fmt} 格式，不是 excel")
         wb = load_workbook(tpl_path)
-        replaced = _fill_template_variables(wb, variables) if variables else 0
+        replaced = fill_excel_variables(wb, variables) if variables else 0
     else:
         wb = Workbook()
         if wb.sheetnames:
@@ -99,26 +98,6 @@ def excel_create_workbook(
         "variables_replaced": replaced,
         "sheets": wb.sheetnames,
     }
-
-
-def _fill_template_variables(wb: Workbook, variables: dict[str, Any]) -> int:
-    """填充工作簿中的 {{variable}} 占位符。"""
-    import re
-
-    count = 0
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if cell.value and isinstance(cell.value, str) and "{{" in cell.value:
-
-                    def replacer(m: re.Match[str]) -> str:
-                        return str(variables.get(m.group(1), ""))
-
-                    new_val = re.sub(r"\{\{([^}]+)\}\}", replacer, cell.value)
-                    if new_val != cell.value:
-                        cell.value = new_val
-                        count += 1
-    return count
 
 
 def excel_get_info(filename: str, session_id: str | None = None) -> dict[str, Any]:
@@ -350,13 +329,18 @@ def excel_format_cell(
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
 
-    font_obj = Font(
-        name=font,
-        bold=bold,
-        italic=italic,
-        size=font_size,
-        color=font_color,
-    )
+    font_kwargs: dict[str, Any] = {}
+    if font is not None:
+        font_kwargs["name"] = font
+    if bold:
+        font_kwargs["bold"] = bold
+    if italic:
+        font_kwargs["italic"] = italic
+    if font_size is not None:
+        font_kwargs["size"] = font_size
+    if font_color is not None:
+        font_kwargs["color"] = font_color
+
     fill_obj = (
         PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
         if bg_color
@@ -371,7 +355,8 @@ def excel_format_cell(
 
     for row in ws[range_str]:
         for cell in row:
-            cell.font = font_obj
+            if font_kwargs:
+                cell.font = cell.font.copy(**font_kwargs)
             if fill_obj:
                 cell.fill = fill_obj
             if align_obj:
@@ -497,8 +482,6 @@ def excel_create_pivot_table(
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """创建数据透视表（用 pandas 实现）。"""
-    import pandas as pd
-
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, source_sheet)
 
@@ -575,8 +558,6 @@ def excel_add_conditional_format(
             operator="between", formula=[parts[0].strip(), parts[1].strip()], fill=fill
         )
     elif rule_type == "contains_text" and criteria:
-        from openpyxl.formatting.rule import FormulaRule
-
         rule = FormulaRule(formula=[f'NOT(ISERROR(SEARCH("{criteria}",A1)))'], fill=fill)
     else:
         raise ToolError(f"规则类型 '{rule_type}' 需要 criteria 参数")
@@ -602,8 +583,6 @@ def excel_analyze_data(
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """数据统计分析（描述统计、空值检测、类型推断）。"""
-    import pandas as pd
-
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
 
@@ -668,8 +647,6 @@ def excel_find_duplicates(
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """查找重复数据。"""
-    import pandas as pd
-
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
 

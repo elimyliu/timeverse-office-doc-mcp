@@ -9,8 +9,11 @@ import logging
 from typing import Any
 
 from ..common.error_handler import ToolError
+from ..common.file_lock import file_lock_mgr
+from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
+from ..common.template_utils import fill_excel_variables, fill_ppt_variables, fill_word_variables
 
 logger = logging.getLogger("timeverse_office_doc_mcp.doc")
 
@@ -108,12 +111,9 @@ def _apply_word_template(
     """应用 Word 模板。"""
     from docx import Document
 
-    from ..common.file_lock import file_lock_mgr
-    from ..common.path_guard import path_guard
-
     validated_out = path_guard.validate_path(output_path, "write")
     doc = Document(tpl_path)
-    replaced = _fill_docx_variables(doc, variables)
+    replaced = fill_word_variables(doc, variables)
     file_lock_mgr.acquire(validated_out)
     try:
         doc.save(validated_out)
@@ -127,65 +127,15 @@ def _apply_word_template(
     }
 
 
-def _fill_docx_variables(doc: Any, variables: dict[str, Any]) -> int:
-    """填充 Word 文档中的占位符。"""
-    import re
-
-    count = 0
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            if "{{" in run.text:
-                new_text = re.sub(
-                    r"\{\{([^}]+)\}\}",
-                    lambda m: str(variables.get(m.group(1), "")),
-                    run.text,
-                )
-                if new_text != run.text:
-                    run.text = new_text
-                    count += 1
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        if "{{" in run.text:
-                            new_text = re.sub(
-                                r"\{\{([^}]+)\}\}",
-                                lambda m: str(variables.get(m.group(1), "")),
-                                run.text,
-                            )
-                            if new_text != run.text:
-                                run.text = new_text
-                                count += 1
-    return count
-
-
 def _apply_excel_template(
     tpl_path: str, output_path: str, variables: dict[str, Any]
 ) -> dict[str, Any]:
     """应用 Excel 模板。"""
-    import re
-
     from openpyxl import load_workbook
-
-    from ..common.file_lock import file_lock_mgr
-    from ..common.path_guard import path_guard
 
     validated_out = path_guard.validate_path(output_path, "write")
     wb = load_workbook(tpl_path)
-    replaced = 0
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if cell.value and isinstance(cell.value, str) and "{{" in cell.value:
-                    new_val = re.sub(
-                        r"\{\{([^}]+)\}\}",
-                        lambda m: str(variables.get(m.group(1), "")),
-                        cell.value,
-                    )
-                    if new_val != cell.value:
-                        cell.value = new_val
-                        replaced += 1
+    replaced = fill_excel_variables(wb, variables)
     file_lock_mgr.acquire(validated_out)
     try:
         wb.save(validated_out)
@@ -203,30 +153,11 @@ def _apply_ppt_template(
     tpl_path: str, output_path: str, variables: dict[str, Any]
 ) -> dict[str, Any]:
     """应用 PPT 模板。"""
-    import re
-
     from pptx import Presentation
-
-    from ..common.file_lock import file_lock_mgr
-    from ..common.path_guard import path_guard
 
     validated_out = path_guard.validate_path(output_path, "write")
     prs = Presentation(tpl_path)
-    replaced = 0
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                for paragraph in shape.text_frame.paragraphs:
-                    for run in paragraph.runs:
-                        if run.text and "{{" in run.text:
-                            new_text = re.sub(
-                                r"\{\{([^}]+)\}\}",
-                                lambda m: str(variables.get(m.group(1), "")),
-                                run.text,
-                            )
-                            if new_text != run.text:
-                                run.text = new_text
-                                replaced += 1
+    replaced = fill_ppt_variables(prs, variables)
     file_lock_mgr.acquire(validated_out)
     try:
         prs.save(validated_out)
@@ -258,8 +189,6 @@ def doc_open_session(filename: str, format: str) -> dict[str, Any]:
 
     返回 session_id，后续编辑工具可通过 session_id 操作内存中的文档。
     """
-    from ..common.path_guard import path_guard
-
     validated = path_guard.validate_path(filename, "read")
 
     if format == "word":
@@ -294,8 +223,6 @@ def doc_save_session(session_id: str, output_path: str | None = None) -> dict[st
 
     不指定 output_path 则保存回原路径。
     """
-    from ..common.path_guard import path_guard
-
     session = session_manager.get_session(session_id)
 
     if output_path:
@@ -306,8 +233,6 @@ def doc_save_session(session_id: str, output_path: str | None = None) -> dict[st
     # 按格式保存
     doc = session.document
     if session.format == "word" or session.format == "excel" or session.format == "ppt":
-        from ..common.file_lock import file_lock_mgr
-
         file_lock_mgr.acquire(validated_out)
         try:
             doc.save(validated_out)
@@ -315,8 +240,6 @@ def doc_save_session(session_id: str, output_path: str | None = None) -> dict[st
             file_lock_mgr.release(validated_out)
     elif session.format == "pdf":
         # PDF 的 Session 保存逻辑（如果有 PdfWriter 则写入）
-        from ..common.file_lock import file_lock_mgr
-
         if hasattr(doc, "write"):
             file_lock_mgr.acquire(validated_out)
             try:

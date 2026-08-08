@@ -191,8 +191,10 @@ def pdf_extract_images(
                     out_path = str(Path(out_dir) / f"page{i + 1}_img{img_idx + 1}.png")
                     im.save(out_path)
                     extracted.append(out_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Failed to extract image on page %d, img %d: %s", i + 1, img_idx + 1, e
+                    )
     return {"filename": filename, "output_dir": out_dir, "images_extracted": len(extracted)}
 
 
@@ -201,39 +203,24 @@ def pdf_search_text(filename: str, query: str, case_sensitive: bool = False) -> 
     validated = _validate_pdf(filename)
     InputValidator.validate_text_length(query)
     matches: list[dict[str, Any]] = []
+    search_query = query if case_sensitive else query.lower()
     with pdfplumber.open(validated) as pdf:
         for i, page in enumerate(pdf.pages):
             text = page.extract_text() or ""
-            if not case_sensitive:
-                text_lower = text.lower()
-                query_lower = query.lower()
-                idx = 0
-                while True:
-                    pos = text_lower.find(query_lower, idx)
-                    if pos == -1:
-                        break
-                    matches.append(
-                        {
-                            "page": i + 1,
-                            "position": pos,
-                            "context": text[max(0, pos - 20) : pos + len(query) + 20],
-                        }
-                    )
-                    idx = pos + 1
-            else:
-                idx = 0
-                while True:
-                    pos = text.find(query, idx)
-                    if pos == -1:
-                        break
-                    matches.append(
-                        {
-                            "page": i + 1,
-                            "position": pos,
-                            "context": text[max(0, pos - 20) : pos + len(query) + 20],
-                        }
-                    )
-                    idx = pos + 1
+            search_text = text if case_sensitive else text.lower()
+            idx = 0
+            while True:
+                pos = search_text.find(search_query, idx)
+                if pos == -1:
+                    break
+                matches.append(
+                    {
+                        "page": i + 1,
+                        "position": pos,
+                        "context": text[max(0, pos - 20) : pos + len(query) + 20],
+                    }
+                )
+                idx = pos + 1
     return {"filename": filename, "query": query, "match_count": len(matches), "matches": matches}
 
 
@@ -443,8 +430,6 @@ def pdf_encrypt(
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
-
-    from pypdf import PageObject  # noqa: F401
 
     writer.encrypt(password)
     out = output or validated
