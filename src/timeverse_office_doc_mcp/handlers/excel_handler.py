@@ -1,4 +1,4 @@
-"""Excel 文档处理器 - 15 个工具。
+"""Excel 文档处理器 - 16 个工具。
 
 对应方案 5.2 Excel 工具集。使用 openpyxl + pandas 实现。
 """
@@ -17,7 +17,7 @@ from openpyxl.styles import Alignment, Border, PatternFill, Side
 from openpyxl.utils import get_column_letter, range_boundaries
 
 from ..common.error_handler import ToolError
-from ..common.file_lock import file_lock_mgr
+from ..common.file_lock import _locked_write, file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
@@ -39,11 +39,17 @@ def _get_workbook(filename: str, session_id: str | None = None) -> Workbook:
 
 
 def _save_workbook(wb: Workbook, filename: str, session_id: str | None = None) -> None:
-    """保存工作簿：Session 模式仅标记修改，否则写入磁盘。"""
+    """保存工作簿：Session 模式仅标记修改，否则写入磁盘。
+
+    若已由 @_locked_write 装饰器持有文件锁，则直接保存不再重复加锁。
+    """
     if session_id:
         session_manager.mark_modified(session_id)
+        return
+    validated = path_guard.validate_path(filename, "write")
+    if file_lock_mgr.is_held(validated):
+        wb.save(validated)
     else:
-        validated = path_guard.validate_path(filename, "write")
         file_lock_mgr.acquire(validated)
         try:
             wb.save(validated)
@@ -121,6 +127,7 @@ def excel_get_overview(filename: str, session_id: str | None = None) -> dict[str
     }
 
 
+@_locked_write
 def excel_manage_sheet(
     filename: str,
     action: str,
@@ -206,14 +213,37 @@ def excel_read(
     return {"filename": filename, "sheet": sheet, "range": range_str, "data": data}
 
 
+def _apply_header_style(ws: Any, start_cell: str, data: list[list[Any]], header_bold: bool, header_bg_color: str | None) -> None:
+    """对写入区域的首行应用表头样式（加粗 / 背景色）。"""
+    if not data:
+        return
+    min_col, min_row, _, _ = range_boundaries(f"{start_cell}:{start_cell}")
+    fill = None
+    if header_bg_color:
+        fill = PatternFill(start_color=header_bg_color, end_color=header_bg_color, fill_type="solid")
+    for c_idx in range(len(data[0])):
+        cell = ws.cell(row=min_row, column=min_col + c_idx)
+        if header_bold:
+            cell.font = cell.font.copy(bold=True)
+        if fill:
+            cell.fill = fill
+
+
+@_locked_write
 def excel_write(
     filename: str,
     sheet: str,
     start_cell: str,
     data: list[list[Any]],
+    header_bold: bool = False,
+    header_bg_color: str | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """批量写入区域（data 始终为二维数组，单单元格时传 [[value]]）。"""
+    """批量写入区域（data 始终为二维数组，单单元格时传 [[value]]）。
+
+    header_bold / header_bg_color 设置后，写入时直接对首行应用表头样式，
+    免去额外的 excel_format_cell 调用。
+    """
     if not data:
         raise ToolError("数据不能为空")
     wb = _get_workbook(filename, session_id)
@@ -222,6 +252,8 @@ def excel_write(
     for r_idx, row_data in enumerate(data):
         for c_idx, value in enumerate(row_data):
             ws.cell(row=min_row + r_idx, column=min_col + c_idx, value=value)
+    if header_bold or header_bg_color:
+        _apply_header_style(ws, start_cell, data, header_bold, header_bg_color)
     _save_workbook(wb, filename, session_id)
     return {
         "filename": filename,
@@ -229,9 +261,59 @@ def excel_write(
         "start_cell": start_cell,
         "rows_written": len(data),
         "cols_written": len(data[0]) if data else 0,
+        "header_styled": bool(header_bold or header_bg_color),
     }
 
 
+@_locked_write
+def excel_write_multi(
+    filename: str,
+    sheets: dict[str, list[list[Any]]],
+    start_cell: str = "A1",
+    header_bold: bool = False,
+    header_bg_color: str | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """一次向多个工作表批量写入数据（不存在的 sheet 自动创建）。
+
+    sheets 格式: {"Sheet1": [[...], [...]], "Sheet2": [[...]]}。
+    支持 header_bold / header_bg_color 对所有表统一应用表头样式。
+    """
+    if not sheets:
+        raise ToolError("sheets 不能为空")
+    wb = _get_workbook(filename, session_id)
+    written: list[dict[str, Any]] = []
+    for sheet_name, data in sheets.items():
+        if not data:
+            raise ToolError(f"工作表 '{sheet_name}' 的数据不能为空")
+        created = sheet_name not in wb.sheetnames
+        if created:
+            wb.create_sheet(title=sheet_name)
+        ws = wb[sheet_name]
+        min_col, min_row, _, _ = range_boundaries(f"{start_cell}:{start_cell}")
+        for r_idx, row_data in enumerate(data):
+            for c_idx, value in enumerate(row_data):
+                ws.cell(row=min_row + r_idx, column=min_col + c_idx, value=value)
+        if header_bold or header_bg_color:
+            _apply_header_style(ws, start_cell, data, header_bold, header_bg_color)
+        written.append(
+            {
+                "sheet": sheet_name,
+                "rows_written": len(data),
+                "cols_written": len(data[0]) if data else 0,
+                "created": created,
+            }
+        )
+    _save_workbook(wb, filename, session_id)
+    return {
+        "filename": filename,
+        "start_cell": start_cell,
+        "sheets_written": written,
+        "header_styled": bool(header_bold or header_bg_color),
+    }
+
+
+@_locked_write
 def excel_modify_row(
     filename: str,
     sheet: str,
@@ -253,6 +335,7 @@ def excel_modify_row(
     return {"filename": filename, "sheet": sheet, "row_idx": row_idx, "action": action, "count": count}
 
 
+@_locked_write
 def excel_modify_column(
     filename: str,
     sheet: str,
@@ -277,6 +360,23 @@ def excel_modify_column(
 # ==================== 5.2.3 格式化与高级（6 个） ====================
 
 
+def _auto_fit_columns(ws: Any, range_str: str, max_width: int = 50) -> None:
+    """根据单元格内容自动调整指定区域的列宽（中文字符按宽度 2 计算）。"""
+    min_col, min_row, max_col, max_row = range_boundaries(range_str)
+    for col in range(min_col, max_col + 1):
+        max_len = 0
+        for row in range(min_row, max_row + 1):
+            value = ws.cell(row=row, column=col).value
+            if value is None:
+                continue
+            # 中文字符（含全角）按 2 个宽度计算
+            width = sum(2 if ord(ch) > 0x2E80 else 1 for ch in str(value))
+            max_len = max(max_len, width)
+        if max_len > 0:
+            ws.column_dimensions[get_column_letter(col)].width = min(max_len + 2, max_width)
+
+
+@_locked_write
 def excel_format_cell(
     filename: str,
     sheet: str,
@@ -289,9 +389,10 @@ def excel_format_cell(
     bg_color: str | None = None,
     alignment: str | None = None,
     border_style: str | None = None,
+    auto_fit: bool = True,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """格式化单元格。"""
+    """格式化单元格（auto_fit=true 时格式化后自动调整列宽）。"""
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
 
@@ -330,10 +431,14 @@ def excel_format_cell(
             if border_obj:
                 cell.border = border_obj
 
+    if auto_fit:
+        _auto_fit_columns(ws, range_str)
+
     _save_workbook(wb, filename, session_id)
     return {"filename": filename, "sheet": sheet, "range": range_str}
 
 
+@_locked_write
 def excel_apply_formula(
     filename: str,
     sheet: str,
@@ -351,6 +456,7 @@ def excel_apply_formula(
     return {"filename": filename, "sheet": sheet, "cell": cell_ref, "formula": formula}
 
 
+@_locked_write
 def excel_create_chart(
     filename: str,
     sheet: str,
@@ -388,6 +494,7 @@ def excel_create_chart(
     }
 
 
+@_locked_write
 def excel_freeze_panes(
     filename: str, sheet: str, cell_ref: str, session_id: str | None = None
 ) -> dict[str, Any]:
@@ -399,6 +506,7 @@ def excel_freeze_panes(
     return {"filename": filename, "sheet": sheet, "freeze_at": cell_ref}
 
 
+@_locked_write
 def excel_sort_data(
     filename: str,
     sheet: str,
@@ -436,6 +544,7 @@ def excel_sort_data(
     }
 
 
+@_locked_write
 def excel_add_conditional_format(
     filename: str,
     sheet: str,

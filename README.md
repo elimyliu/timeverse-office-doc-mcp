@@ -4,7 +4,7 @@
 [![CI](https://github.com/timeverse/timeverse-office-doc-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/timeverse/timeverse-office-doc-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-面向 **Word / Excel / PowerPoint / PDF** 四大格式的全场景读写与分析 MCP Server。提供 **71 个工具**，覆盖文档创建、内容编辑、格式化、数据分析、模板管理、Session 内存编辑等全链路能力，让 AI 模型直接操控办公文档。
+面向 **Word / Excel / PowerPoint / PDF** 四大格式的全场景读写与分析 MCP Server。提供 **73 个工具**，覆盖文档创建、内容编辑、格式化、数据分析、模板管理、Session 内存编辑等全链路能力，让 AI 模型直接操控办公文档。
 
 ---
 
@@ -14,7 +14,7 @@
 - [核心特点和优势](#核心特点和优势)
 - [详细的能力清单](#详细的能力清单)
   - [Word 工具集（19 个）](#word-工具集19-个)
-  - [Excel 工具集（15 个）](#excel-工具集15-个)
+  - [Excel 工具集（16 个）](#excel-工具集16-个)
   - [PowerPoint 工具集（14 个）](#powerpoint-工具集14-个)
   - [PDF 工具集（16 个）](#pdf-工具集16-个)
   - [跨格式工具集（8 个）](#跨格式工具集8-个)
@@ -32,7 +32,7 @@
 
 ## 工具简介
 
-**timeverse-office-doc-mcp** 是一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的办公文档处理服务器。它将 Word、Excel、PowerPoint、PDF 四大主流办公格式的读写、编辑、分析能力封装为 71 个标准化工具，任何支持 MCP 的 AI 客户端都可以直接调用。
+**timeverse-office-doc-mcp** 是一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的办公文档处理服务器。它将 Word、Excel、PowerPoint、PDF 四大主流办公格式的读写、编辑、分析能力封装为 73 个标准化工具，任何支持 MCP 的 AI 客户端都可以直接调用。
 
 无论是让 AI 帮你生成一份格式规范的 Word 报告、处理 Excel 数据统计与排序、制作 PPT 演示文稿，还是对 PDF 进行合并拆分、加水印、提取表格——这个 MCP Server 都能让 AI 直接完成，无需人工切换软件。
 
@@ -42,9 +42,9 @@
 
 ## 核心特点和优势
 
-### 1. 四大格式全覆盖，71 个工具
+### 1. 四大格式全覆盖，73 个工具
 
-一个 Server 搞定 Word（18）、Excel（15）、PowerPoint（14）、PDF（16）以及跨格式模板与 Session 管理（8），无需为每种格式单独部署。
+一个 Server 搞定 Word（19）、Excel（16）、PowerPoint（14）、PDF（16）以及跨格式模板与 Session 管理（8），无需为每种格式单独部署。
 
 ### 2. Session 内存编辑模式
 
@@ -65,11 +65,12 @@
 - 黑名单拦截敏感路径（`.ssh`、`.aws`、`/etc` 等）
 - 写操作校验文件扩展名白名单
 - 文件大小限制（默认 100MB）
+- 相对路径统一锚定到项目根目录（`OFFICE_BASE_DIR` 可覆盖），不依赖进程 cwd
 - 启动时自动将 cwd 加入白名单
 
 ### 5. 文件并发锁
 
-基于 `filelock` 的文件级锁机制，防止多进程/多请求并发写同一文件导致损坏。
+基于 `filelock` 的文件级锁机制，防止多进程/多请求并发写同一文件导致损坏。所有修改类工具在 handler 调用周期内整体持锁，「读-改-写」全程原子，避免并发读写相互覆盖导致数据丢失。
 
 ### 6. 审计日志
 
@@ -128,7 +129,7 @@
 
 ---
 
-### Excel 工具集（15 个）
+### Excel 工具集（16 个）
 
 #### 工作簿管理（3 个）
 
@@ -138,12 +139,13 @@
 | `excel_get_overview` | 获取工作簿概览（工作表列表及各表行列数） | `filename` | `session_id` |
 | `excel_manage_sheet` | 管理工作表（action: add / delete / rename / copy） | `filename`, `action` | `sheet_name`, `new_name`, `source`, `target`, `session_id` |
 
-#### 数据读写（4 个）
+#### 数据读写（5 个）
 
 | 工具 | 描述 | 必需参数 | 可选参数 |
 |------|------|----------|----------|
 | `excel_read` | 读取数据（`range_str` 为单格如 "A1" 返回单值，为区域如 "A1:C10" 返回二维数据） | `filename`, `sheet`, `range_str` | `session_id` |
-| `excel_write` | 批量写入区域（data 为二维数组，单格传 `[[value]]`） | `filename`, `sheet`, `start_cell`, `data` | `session_id` |
+| `excel_write` | 批量写入区域（data 为二维数组，单格传 `[[value]]`；`header_bold`/`header_bg_color` 可直接应用表头样式） | `filename`, `sheet`, `start_cell`, `data` | `header_bold`, `header_bg_color`, `session_id` |
+| `excel_write_multi` | 一次向多个工作表批量写入数据（不存在的 sheet 自动创建，支持统一表头样式） | `filename`, `sheets` | `start_cell`, `header_bold`, `header_bg_color`, `session_id` |
 | `excel_modify_row` | 插入或删除行（action: insert / delete） | `filename`, `sheet`, `row_idx` | `action`(默认 "insert"), `count`(默认 1), `session_id` |
 | `excel_modify_column` | 插入或删除列（action: insert / delete） | `filename`, `sheet`, `col_idx` | `action`(默认 "insert"), `count`(默认 1), `session_id` |
 
@@ -151,7 +153,7 @@
 
 | 工具 | 描述 | 必需参数 | 可选参数 |
 |------|------|----------|----------|
-| `excel_format_cell` | 格式化单元格（字体、颜色、对齐、边框） | `filename`, `sheet`, `range_str` | `font`, `bold`, `italic`, `font_size`, `font_color`, `bg_color`, `alignment`, `border_style`, `session_id` |
+| `excel_format_cell` | 格式化单元格（字体、颜色、对齐、边框；格式化后自动调整列宽） | `filename`, `sheet`, `range_str` | `font`, `bold`, `italic`, `font_size`, `font_color`, `bg_color`, `alignment`, `border_style`, `auto_fit`(默认 true), `session_id` |
 | `excel_apply_formula` | 应用公式 | `filename`, `sheet`, `cell_ref`, `formula` | `session_id` |
 | `excel_create_chart` | 创建图表（bar / line / pie） | `filename`, `sheet`, `chart_type`, `data_range` | `title`, `session_id` |
 | `excel_freeze_panes` | 冻结窗格 | `filename`, `sheet`, `cell_ref` | `session_id` |
@@ -292,7 +294,7 @@
 │                     MCP Server (stdio)                    │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │              server.py — 工具注册与路由               │ │
-│  │   TOOL_DEFINITIONS (71 个工具 Schema)                │ │
+│  │   TOOL_DEFINITIONS (73 个工具 Schema)                │ │
 │  │   TOOL_HANDLERS (工具名 → handler 映射)              │ │
 │  └──────────────────────────┬──────────────────────────┘ │
 │                             │                             │
@@ -333,11 +335,11 @@
 timeverse-office-doc-mcp/
 ├── src/timeverse_office_doc_mcp/
 │   ├── __init__.py              # 版本号
-│   ├── server.py                # MCP Server 入口（72 个工具定义 + 路由）
+│   ├── server.py                # MCP Server 入口（73 个工具定义 + 路由）
 │   ├── config.py                # 配置管理（ServerConfig + SecurityConfig）
 │   ├── handlers/
 │   │   ├── word_handler.py      # Word 19 个工具
-│   │   ├── excel_handler.py     # Excel 15 个工具
+│   │   ├── excel_handler.py     # Excel 16 个工具
 │   │   ├── ppt_handler.py       # PowerPoint 14 个工具
 │   │   ├── pdf_handler.py       # PDF 16 个工具
 │   │   └── doc_handler.py       # 跨格式 8 个工具（模板 + Session）
@@ -623,6 +625,7 @@ ppt_apply_theme(filename="产品发布.pptx", theme_name="blue")
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `OFFICE_ALLOWED_DIRS` | - | 自定义白名单根目录（逗号分隔多个），默认已包含启动目录 |
+| `OFFICE_BASE_DIR` | 项目根目录 | 相对路径解析基准目录（MCP 传入相对路径时统一锚定到此目录） |
 | `OFFICE_TEMPLATES` | `./templates` | 模板库目录 |
 | `SANITIZE_ENABLED` | `false` | 审计日志敏感数据脱敏开关 |
 | `SANITIZE_FIELDS` | `phone,email,id_card,bank_card` | 脱敏字段类型 |
@@ -643,6 +646,7 @@ ppt_apply_theme(filename="产品发布.pptx", theme_name="blue")
 - 配置的白名单目录（`OFFICE_ALLOWED_DIRS`）下的所有子目录/文件自动合法
 - `workspace`、`output`、`templates` 三个内置目录自动加入白名单
 - 启动时工作目录（cwd）自动加入白名单
+- 相对路径统一锚定到项目根目录（`OFFICE_BASE_DIR` 可覆盖），解析结果可预测，不依赖进程 cwd
 - 黑名单拦截敏感路径：`.ssh`、`.aws`、`.config`、`.env`、`AppData`、`Library`、`/etc`、`/sys`
 - 写操作校验文件扩展名白名单：`.docx`、`.xlsx`、`.pptx`、`.pdf`
 - 白名单之外一律拒绝

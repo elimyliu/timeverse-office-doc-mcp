@@ -1,7 +1,7 @@
 """MCP Server 主入口 - timeverse-office-doc-mcp。
 
 使用 mcp SDK 原生 Server 类，stdio 传输。
-注册 Word(19) + Excel(15) + PPT(14) + PDF(16) + Doc(8) 共 72 个工具。
+注册 Word(19) + Excel(16) + PPT(14) + PDF(16) + Doc(8) 共 73 个工具。
 """
 
 from __future__ import annotations
@@ -426,7 +426,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="excel_write",
-        description="写入数据到单元格或区域（data 为二维数组，单值写 [[value]]）",
+        description="写入数据到单元格或区域（data 为二维数组，单值写 [[value]]；支持 header_bold/header_bg_color 直接应用表头样式）",
         input_schema={
             "type": "object",
             "properties": {
@@ -437,9 +437,30 @@ TOOL_DEFINITIONS: list[Tool] = [
                     "写入数据（二维数组，外层=行，内层=单元格值）",
                     {"type": "array", "items": {}},
                 ),
+                "header_bold": _bool_param("首行是否加粗（表头）", default=False),
+                "header_bg_color": _str_param("首行背景色（十六进制，如 4472C4）"),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "sheet", "start_cell", "data"],
+        },
+    ),
+    Tool(
+        name="excel_write_multi",
+        description="一次向多个工作表批量写入数据（不存在的 sheet 自动创建；支持表头样式）",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "filename": _str_param("工作簿文件路径"),
+                "sheets": _obj_param(
+                    "多表数据（键=工作表名，值=二维数组，如 {\"Sheet1\": [[...]]}）",
+                    {},
+                ),
+                "start_cell": _str_param("起始单元格（如 A1）", default="A1"),
+                "header_bold": _bool_param("各表首行是否加粗（表头）", default=False),
+                "header_bg_color": _str_param("各表首行背景色（十六进制，如 4472C4）"),
+                "session_id": SESSION_ID_PARAM,
+            },
+            "required": ["filename", "sheets"],
         },
     ),
     Tool(
@@ -477,7 +498,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     # ==================== 5.2.3 格式化与高级（6 个） ====================
     Tool(
         name="excel_format_cell",
-        description="格式化单元格（字体、颜色、对齐、边框）",
+        description="格式化单元格（字体、颜色、对齐、边框；格式化后自动调整列宽）",
         input_schema={
             "type": "object",
             "properties": {
@@ -492,6 +513,7 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "bg_color": _str_param("背景色（十六进制，如 D9E2F3）"),
                 "alignment": _str_param("对齐方式（left/center/right）"),
                 "border_style": _str_param("边框样式（如 single/thin/medium）"),
+                "auto_fit": _bool_param("是否自动调整列宽", default=True),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "sheet", "range_str"],
@@ -1192,6 +1214,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     "excel_manage_sheet": excel_handler.excel_manage_sheet,
     "excel_read": excel_handler.excel_read,
     "excel_write": excel_handler.excel_write,
+    "excel_write_multi": excel_handler.excel_write_multi,
     "excel_modify_row": excel_handler.excel_modify_row,
     "excel_modify_column": excel_handler.excel_modify_column,
     "excel_format_cell": excel_handler.excel_format_cell,
@@ -1271,7 +1294,8 @@ async def on_call_tool(ctx: Any, params: Any) -> CallToolResult:
     is_error = False
 
     try:
-        result = handler(**arguments)
+        # handler 为同步函数，放入线程池执行，避免阻塞事件循环
+        result = await asyncio.to_thread(handler, **arguments)
         if result is None:
             text = "操作完成"
         elif isinstance(result, dict):

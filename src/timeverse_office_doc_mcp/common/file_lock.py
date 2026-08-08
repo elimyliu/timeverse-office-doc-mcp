@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
 
@@ -37,6 +38,38 @@ class FileLockManager:
         if lock is not None:
             lock.release()
 
+    def is_held(self, file_path: str) -> bool:
+        """当前线程/进程是否已持有该文件的锁。"""
+        return file_path in self._locks
+
 
 # 全局单例
 file_lock_mgr = FileLockManager()
+
+
+def _locked_write(func: object) -> object:
+    """装饰器：将 handler 调用整体包进文件锁。
+
+    保证「读-改-写」周期（load -> modify -> save）在锁内完成，
+    避免多个并发请求读取到同一版本后相互覆盖（丢失更新）。
+    session 模式（内存文档）天然互斥，不加锁。
+    """
+
+    @functools.wraps(func)  # type: ignore[arg-type]
+    def wrapper(*args, **kwargs):  # type: ignore[no-untyped-def]
+        # filename 为第一个位置参数，或关键字参数
+        filename = args[0] if args else kwargs.get("filename")
+        session_id = kwargs.get("session_id")
+        if session_id or not filename:
+            return func(*args, **kwargs)
+
+        from .path_guard import path_guard
+
+        validated = path_guard.validate_path(filename, "write")
+        file_lock_mgr.acquire(validated)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            file_lock_mgr.release(validated)
+
+    return wrapper  # type: ignore[return-value]

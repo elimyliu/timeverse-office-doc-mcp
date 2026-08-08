@@ -1,4 +1,4 @@
-"""Word 文档处理器 - 18 个工具。
+"""Word 文档处理器 - 19 个工具。
 
 对应方案 5.1 Word 工具集。
 使用 python-docx 实现，支持 Session 内存编辑模式。
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
 
 from ..common.error_handler import ToolError
-from ..common.file_lock import file_lock_mgr
+from ..common.file_lock import _locked_write, file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
@@ -41,11 +42,17 @@ def _get_document(filename: str, session_id: str | None = None) -> Document:
 
 
 def _save_document(doc: Document, filename: str, session_id: str | None = None) -> None:
-    """保存文档：Session 模式仅标记修改，否则写入磁盘。"""
+    """保存文档：Session 模式仅标记修改，否则写入磁盘。
+
+    若已由 @_locked_write 装饰器持有文件锁，则直接保存不再重复加锁。
+    """
     if session_id:
         session_manager.mark_modified(session_id)
+        return
+    validated = path_guard.validate_path(filename, "write")
+    if file_lock_mgr.is_held(validated):
+        doc.save(validated)
     else:
-        validated = path_guard.validate_path(filename, "write")
         file_lock_mgr.acquire(validated)
         try:
             doc.save(validated)
@@ -79,11 +86,14 @@ def word_create_document(
         doc = Document()
         replaced = 0
 
-    # 设置核心属性
+    # 设置核心属性（含创建/修改时间，避免沿用 python-docx 模板默认时间戳）
     if title:
         doc.core_properties.title = title
     if author:
         doc.core_properties.author = author
+    now = datetime.now(timezone.utc)
+    doc.core_properties.created = now
+    doc.core_properties.modified = now
 
     if session_id:
         session_manager.open_session(validated, "word", doc)
@@ -241,6 +251,7 @@ def word_copy_document(source: str, destination: str) -> dict[str, Any]:
 # ==================== 5.1.2 内容编辑（7 个） ====================
 
 
+@_locked_write
 def word_add_heading(
     filename: str,
     text: str,
@@ -274,6 +285,7 @@ def word_add_heading(
     }
 
 
+@_locked_write
 def word_add_paragraph(
     filename: str,
     text: str = "",
@@ -315,6 +327,7 @@ def word_add_paragraph(
     }
 
 
+@_locked_write
 def word_add_cover(
     filename: str,
     title: str,
@@ -376,6 +389,7 @@ def word_add_cover(
     }
 
 
+@_locked_write
 def word_add_table(
     filename: str,
     rows: int,
@@ -418,6 +432,7 @@ def word_add_table(
     }
 
 
+@_locked_write
 def word_add_image(
     filename: str,
     image_path: str,
@@ -437,6 +452,7 @@ def word_add_image(
     return {"filename": filename, "image_path": img, "width": width}
 
 
+@_locked_write
 def word_add_list(
     filename: str,
     items: list[str],
@@ -455,6 +471,7 @@ def word_add_list(
     return {"filename": filename, "items_count": len(items), "list_style": list_style}
 
 
+@_locked_write
 def word_set_header_footer(
     filename: str,
     header_text: str = "",
@@ -567,6 +584,7 @@ def _enable_update_fields_on_open(doc: Document) -> None:
     )
 
 
+@_locked_write
 def word_generate_toc(
     filename: str,
     max_level: int = 3,
@@ -608,6 +626,7 @@ def word_generate_toc(
 # ==================== 5.1.3 格式化与操作（5 个） ====================
 
 
+@_locked_write
 def word_format_text(
     filename: str,
     paragraph_idx: int,
@@ -654,6 +673,7 @@ def word_format_text(
     return {"filename": filename, "paragraph_idx": paragraph_idx, "range": [start, end]}
 
 
+@_locked_write
 def word_format_table(
     filename: str,
     table_idx: int,
@@ -708,6 +728,7 @@ def word_format_table(
     }
 
 
+@_locked_write
 def word_search_replace(
     filename: str,
     find_text: str,
@@ -743,6 +764,7 @@ def word_search_replace(
     return {"filename": filename, "find": find_text, "replaced_count": replaced_count}
 
 
+@_locked_write
 def word_delete_paragraph(
     filename: str,
     paragraph_idx: int,
@@ -761,6 +783,7 @@ def word_delete_paragraph(
     return {"filename": filename, "deleted_paragraph_idx": paragraph_idx}
 
 
+@_locked_write
 def word_create_style(
     filename: str,
     style_name: str,

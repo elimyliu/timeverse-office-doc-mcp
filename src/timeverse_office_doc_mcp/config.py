@@ -22,6 +22,10 @@ class ServerConfig:
     # 模板目录
     TEMPLATE_DIR = os.environ.get("OFFICE_TEMPLATES", str(PROJECT_ROOT / "templates"))
 
+    # 相对路径解析基准目录（OFFICE_BASE_DIR 可覆盖，默认项目根目录）
+    # 相对路径统一锚定到此目录，避免依赖进程 cwd 导致解析不可预测
+    BASE_DIR = os.environ.get("OFFICE_BASE_DIR", str(PROJECT_ROOT))
+
 
 class SecurityConfig:
     """安全配置（对应方案 7.4）。
@@ -36,6 +40,7 @@ class SecurityConfig:
         d
         for d in (
             *os.environ.get("OFFICE_ALLOWED_DIRS", "").split(","),  # 自定义根目录（可多个）
+            ServerConfig.BASE_DIR,
             ServerConfig.TEMPLATE_DIR,
             os.getcwd(),  # 启动时工作目录兜底
         )
