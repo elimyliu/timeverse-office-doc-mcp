@@ -42,58 +42,60 @@ class TestExcelCreateWorkbook:
 class TestExcelSheetOperations:
     def test_add_and_delete_sheet(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_add_sheet(xlsx_path, "分析")
-        info = excel_handler.excel_get_info(xlsx_path)
+        excel_handler.excel_manage_sheet(xlsx_path, "add", sheet_name="分析")
+        info = excel_handler.excel_get_overview(xlsx_path)
         sheet_names = [s["name"] for s in info["sheets"]]
         assert "分析" in sheet_names
 
-        excel_handler.excel_delete_sheet(xlsx_path, "分析")
-        info = excel_handler.excel_get_info(xlsx_path)
+        excel_handler.excel_manage_sheet(xlsx_path, "delete", sheet_name="分析")
+        info = excel_handler.excel_get_overview(xlsx_path)
         sheet_names = [s["name"] for s in info["sheets"]]
         assert "分析" not in sheet_names
 
     def test_rename_sheet(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_rename_sheet(xlsx_path, "Sheet", "数据表")
-        result = excel_handler.excel_list_sheets(xlsx_path)
-        assert "数据表" in result["sheets"]
+        excel_handler.excel_manage_sheet(xlsx_path, "rename", sheet_name="Sheet", new_name="数据表")
+        result = excel_handler.excel_get_overview(xlsx_path)
+        sheet_names = [s["name"] for s in result["sheets"]]
+        assert "数据表" in sheet_names
 
     def test_copy_sheet(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_copy_sheet(xlsx_path, "Sheet", "副本")
-        result = excel_handler.excel_list_sheets(xlsx_path)
-        assert "副本" in result["sheets"]
+        excel_handler.excel_manage_sheet(xlsx_path, "copy", source="Sheet", target="副本")
+        result = excel_handler.excel_get_overview(xlsx_path)
+        sheet_names = [s["name"] for s in result["sheets"]]
+        assert "副本" in sheet_names
 
 
 class TestExcelDataReadWrite:
     def test_write_and_read_cell(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_write_cell(xlsx_path, "Sheet", "A1", "你好")
-        result = excel_handler.excel_read_cell(xlsx_path, "Sheet", "A1")
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", [["你好"]])
+        result = excel_handler.excel_read(xlsx_path, "Sheet", "A1")
         assert result["value"] == "你好"
 
     def test_write_and_read_range(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
         data = [["姓名", "年龄"], ["张三", 25], ["李四", 30]]
-        excel_handler.excel_write_range(xlsx_path, "Sheet", "A1", data)
-        result = excel_handler.excel_read_range(xlsx_path, "Sheet", "A1:B3")
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", data)
+        result = excel_handler.excel_read(xlsx_path, "Sheet", "A1:B3")
         assert result["data"] == data
 
     def test_insert_delete_row(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_write_cell(xlsx_path, "Sheet", "A1", "原数据")
-        excel_handler.excel_insert_row(xlsx_path, "Sheet", 1)
-        result = excel_handler.excel_read_cell(xlsx_path, "Sheet", "A2")
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", [["原数据"]])
+        excel_handler.excel_modify_row(xlsx_path, "Sheet", 1, action="insert")
+        result = excel_handler.excel_read(xlsx_path, "Sheet", "A2")
         assert result["value"] == "原数据"
 
 
 class TestExcelFormula:
     def test_apply_formula(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
-        excel_handler.excel_write_cell(xlsx_path, "Sheet", "A1", 10)
-        excel_handler.excel_write_cell(xlsx_path, "Sheet", "A2", 20)
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", [[10]])
+        excel_handler.excel_write(xlsx_path, "Sheet", "A2", [[20]])
         excel_handler.excel_apply_formula(xlsx_path, "Sheet", "A3", "=SUM(A1:A2)")
-        result = excel_handler.excel_read_cell(xlsx_path, "Sheet", "A3")
+        result = excel_handler.excel_read(xlsx_path, "Sheet", "A3")
         assert result["value"] == "=SUM(A1:A2)"
 
 
@@ -108,7 +110,7 @@ class TestExcelAnalyzeData:
     def test_analyze(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
         data = [["姓名", "年龄"], ["张三", 25], ["李四", 30], ["王五", 35]]
-        excel_handler.excel_write_range(xlsx_path, "Sheet", "A1", data)
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", data)
         result = excel_handler.excel_analyze_data(xlsx_path, "Sheet", "A1:B4")
         assert result["total_rows"] == 3
         assert "年龄" in result["columns"]
@@ -119,6 +121,6 @@ class TestExcelFindDuplicates:
     def test_find_dups(self, xlsx_path: str) -> None:
         excel_handler.excel_create_workbook(xlsx_path)
         data = [["姓名"], ["张三"], ["李四"], ["张三"], ["王五"], ["张三"]]
-        excel_handler.excel_write_range(xlsx_path, "Sheet", "A1", data)
+        excel_handler.excel_write(xlsx_path, "Sheet", "A1", data)
         result = excel_handler.excel_find_duplicates(xlsx_path, "Sheet", ["姓名"])
         assert result["total_duplicates"] == 3

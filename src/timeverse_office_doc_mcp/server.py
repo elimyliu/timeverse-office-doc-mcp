@@ -1,7 +1,7 @@
 """MCP Server 主入口 - timeverse-office-doc-mcp。
 
 使用 mcp SDK 原生 Server 类，stdio 传输。
-注册 Word(21) + Excel(24) + PPT(19) + PDF(19) + Doc(10) 共 93 个工具。
+注册 Word(18) + Excel(15) + PPT(14) + PDF(16) + Doc(8) 共 71 个工具。
 """
 
 from __future__ import annotations
@@ -88,36 +88,26 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="word_get_info",
-        description="获取 Word 文档元信息（段落数、表格数、页数等）",
+        description="获取 Word 文档信息（detailed=true 时附带结构分析：标题层级、样式分布等）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
+                "detailed": _bool_param("是否附带结构分析（标题层级、样式分布、表格详情等）", default=False),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename"],
         },
     ),
     Tool(
-        name="word_get_text",
-        description="提取 Word 全文文本（可选包含表格内容）",
+        name="word_extract_text",
+        description="提取 Word 文本（extract_type: text=全文, outline=仅大纲, all=两者）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
-                "include_tables": _bool_param("是否包含表格文本", default=True),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename"],
-        },
-    ),
-    Tool(
-        name="word_get_outline",
-        description="获取 Word 文档大纲结构（标题层级）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("文档文件路径"),
+                "extract_type": _str_param("提取类型（text/outline/all）", default="text"),
+                "include_tables": _bool_param("是否包含表格文本（text/all 时生效）", default=True),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename"],
@@ -161,7 +151,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="word_add_paragraph",
-        description="添加段落（支持样式、字号、加粗）",
+        description="添加段落（page_break=true 时同时插入分页符）",
         inputSchema={
             "type": "object",
             "properties": {
@@ -170,9 +160,10 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "style": _str_param("段落样式名（如 Normal, List Bullet 等）"),
                 "font_size": _int_param("字号（磅）"),
                 "bold": _bool_param("是否加粗", default=False),
+                "page_break": _bool_param("是否在段落前插入分页符", default=False),
                 "session_id": SESSION_ID_PARAM,
             },
-            "required": ["filename", "text"],
+            "required": ["filename"],
         },
     ),
     Tool(
@@ -206,18 +197,6 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "image_path"],
-        },
-    ),
-    Tool(
-        name="word_add_page_break",
-        description="插入分页符",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("文档文件路径"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename"],
         },
     ),
     Tool(
@@ -347,18 +326,6 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     # ==================== 5.1.4 分析工具 ====================
     Tool(
-        name="word_analyze_structure",
-        description="分析文档结构（标题层级、段落分布、表格统计、图片统计）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("文档文件路径"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename"],
-        },
-    ),
-    Tool(
         name="word_extract_tables",
         description="提取所有表格数据（JSON 或 CSV 格式）",
         inputSchema={
@@ -371,7 +338,7 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["filename"],
         },
     ),
-    # ==================== 5.2.1 工作簿管理 ====================
+    # ==================== 5.2.1 工作簿管理（3 个） ====================
     Tool(
         name="excel_create_workbook",
         description="创建新 Excel 工作簿（支持模板）",
@@ -388,8 +355,8 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="excel_get_info",
-        description="获取 Excel 工作簿元信息（工作表列表、尺寸等）",
+        name="excel_get_overview",
+        description="获取 Excel 工作簿概览（工作表列表及各表行列数）",
         inputSchema={
             "type": "object",
             "properties": {
@@ -400,118 +367,40 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="excel_list_sheets",
-        description="列出所有工作表名称",
+        name="excel_manage_sheet",
+        description="管理工作表（action: add=添加, delete=删除, rename=重命名, copy=复制）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
+                "action": _str_param("操作类型（add/delete/rename/copy）"),
+                "sheet_name": _str_param("工作表名（add/delete 时为操作目标；rename 时为旧名称）"),
+                "new_name": _str_param("新工作表名（rename 时使用）"),
+                "source": _str_param("源工作表名（copy 时使用）"),
+                "target": _str_param("目标工作表名（copy 时使用）"),
                 "session_id": SESSION_ID_PARAM,
             },
-            "required": ["filename"],
+            "required": ["filename", "action"],
         },
     ),
+    # ==================== 5.2.2 数据读写（4 个） ====================
     Tool(
-        name="excel_add_sheet",
-        description="添加新工作表",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet_name": _str_param("新工作表名"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet_name"],
-        },
-    ),
-    Tool(
-        name="excel_delete_sheet",
-        description="删除工作表",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet_name": _str_param("待删除工作表名"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet_name"],
-        },
-    ),
-    Tool(
-        name="excel_rename_sheet",
-        description="重命名工作表",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "old_name": _str_param("原工作表名"),
-                "new_name": _str_param("新工作表名"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "old_name", "new_name"],
-        },
-    ),
-    Tool(
-        name="excel_copy_sheet",
-        description="复制工作表",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "source": _str_param("源工作表名"),
-                "target": _str_param("目标工作表名"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "source", "target"],
-        },
-    ),
-    # ==================== 5.2.2 数据读写 ====================
-    Tool(
-        name="excel_read_cell",
-        description="读取单元格值",
+        name="excel_read",
+        description="读取单元格或区域数据（range_str: 单元格如 A1 或区域如 A1:C10）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
                 "sheet": _str_param("工作表名"),
-                "cell_ref": _str_param("单元格引用（如 A1）"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet", "cell_ref"],
-        },
-    ),
-    Tool(
-        name="excel_write_cell",
-        description="写入单元格值",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet": _str_param("工作表名"),
-                "cell_ref": _str_param("单元格引用（如 A1）"),
-                "value": {"description": "单元格值（字符串、数字或布尔）"},
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet", "cell_ref", "value"],
-        },
-    ),
-    Tool(
-        name="excel_read_range",
-        description="读取区域数据（二维数组）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet": _str_param("工作表名"),
-                "range_str": _str_param("区域范围（如 A1:C10）"),
+                "range_str": _str_param("单元格引用（如 A1）或区域范围（如 A1:C10）"),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "sheet", "range_str"],
         },
     ),
     Tool(
-        name="excel_write_range",
-        description="批量写入区域数据",
+        name="excel_write",
+        description="写入数据到单元格或区域（data 为二维数组，单值写 [[value]]）",
         inputSchema={
             "type": "object",
             "properties": {
@@ -528,66 +417,38 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="excel_insert_row",
-        description="插入行",
+        name="excel_modify_row",
+        description="插入或删除行（action: insert=插入, delete=删除）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
                 "sheet": _str_param("工作表名"),
                 "row_idx": _int_param("行索引（1-based）"),
-                "count": _int_param("插入行数", default=1),
+                "action": _str_param("操作类型（insert/delete）", default="insert"),
+                "count": _int_param("行数", default=1),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "sheet", "row_idx"],
         },
     ),
     Tool(
-        name="excel_delete_row",
-        description="删除行",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet": _str_param("工作表名"),
-                "row_idx": _int_param("行索引（1-based）"),
-                "count": _int_param("删除行数", default=1),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet", "row_idx"],
-        },
-    ),
-    Tool(
-        name="excel_insert_column",
-        description="插入列",
+        name="excel_modify_column",
+        description="插入或删除列（action: insert=插入, delete=删除）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
                 "sheet": _str_param("工作表名"),
                 "col_idx": _int_param("列索引（1-based）"),
-                "count": _int_param("插入列数", default=1),
+                "action": _str_param("操作类型（insert/delete）", default="insert"),
+                "count": _int_param("列数", default=1),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "sheet", "col_idx"],
         },
     ),
-    Tool(
-        name="excel_delete_column",
-        description="删除列",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "sheet": _str_param("工作表名"),
-                "col_idx": _int_param("列索引（1-based）"),
-                "count": _int_param("删除列数", default=1),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "sheet", "col_idx"],
-        },
-    ),
-    # ==================== 5.2.3 格式化与高级 ====================
+    # ==================== 5.2.3 格式化与高级（6 个） ====================
     Tool(
         name="excel_format_cell",
         description="格式化单元格（字体、颜色、对齐、边框）",
@@ -672,33 +533,6 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="excel_create_pivot_table",
-        description="创建数据透视表",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("工作簿文件路径"),
-                "source_sheet": _str_param("源工作表名"),
-                "source_range": _str_param("源数据区域（如 A1:D100）"),
-                "target_sheet": _str_param("目标工作表名"),
-                "rows": _str_param("行字段（列名）"),
-                "cols": _str_param("列字段（列名）"),
-                "values": _str_param("值字段（列名）"),
-                "agg_func": _str_param("聚合函数（sum/mean/count/max/min）", default="sum"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": [
-                "filename",
-                "source_sheet",
-                "source_range",
-                "target_sheet",
-                "rows",
-                "cols",
-                "values",
-            ],
-        },
-    ),
-    Tool(
         name="excel_add_conditional_format",
         description="添加条件格式",
         inputSchema={
@@ -717,7 +551,7 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["filename", "sheet", "range_str", "rule_type"],
         },
     ),
-    # ==================== 5.2.4 分析工具 ====================
+    # ==================== 5.2.4 分析工具（2 个） ====================
     Tool(
         name="excel_analyze_data",
         description="数据统计分析（描述统计、空值检测、类型推断）",
@@ -763,24 +597,13 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="ppt_get_info",
-        description="获取 PPT 演示文稿元信息（幻灯片数、尺寸等）",
+        name="ppt_get_overview",
+        description="获取 PPT 演示文稿概览（list_slides=true 时附带幻灯片概览）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename"],
-        },
-    ),
-    Tool(
-        name="ppt_list_slides",
-        description="列出所有幻灯片",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("演示文稿文件路径"),
+                "list_slides": _bool_param("是否附带幻灯片概览列表", default=False),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename"],
@@ -801,43 +624,18 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="ppt_delete_slide",
-        description="删除指定幻灯片",
+        name="ppt_manage_slide",
+        description="管理幻灯片（action: delete=删除, move=移动, copy=复制）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
+                "action": _str_param("操作类型（delete/move/copy）"),
                 "slide_idx": _int_param("幻灯片索引（0-based）"),
+                "new_idx": _int_param("目标位置索引（0-based，action=move 时使用）"),
                 "session_id": SESSION_ID_PARAM,
             },
-            "required": ["filename", "slide_idx"],
-        },
-    ),
-    Tool(
-        name="ppt_move_slide",
-        description="移动幻灯片到新位置",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("演示文稿文件路径"),
-                "slide_idx": _int_param("原幻灯片索引（0-based）"),
-                "new_idx": _int_param("目标位置索引（0-based）"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "slide_idx", "new_idx"],
-        },
-    ),
-    Tool(
-        name="ppt_copy_slide",
-        description="复制幻灯片（副本插入到原幻灯片之后）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("演示文稿文件路径"),
-                "slide_idx": _int_param("幻灯片索引（0-based）"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "slide_idx"],
+            "required": ["filename", "action", "slide_idx"],
         },
     ),
     # ==================== 5.3.2 内容编辑 ====================
@@ -966,17 +764,18 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="ppt_set_slide_notes",
-        description="设置演讲者备注",
+        name="ppt_slide_notes",
+        description="演讲者备注管理（action: get=获取, set=设置）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
                 "slide_idx": _int_param("幻灯片索引（0-based）"),
-                "notes_text": _str_param("备注文本"),
+                "action": _str_param("操作类型（get/set）", default="get"),
+                "notes_text": _str_param("备注文本（action=set 时必填）"),
                 "session_id": SESSION_ID_PARAM,
             },
-            "required": ["filename", "slide_idx", "notes_text"],
+            "required": ["filename", "slide_idx"],
         },
     ),
     # ==================== 5.3.3 分析工具 ====================
@@ -993,37 +792,13 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="ppt_get_slide_notes",
-        description="获取指定幻灯片的演讲者备注",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("演示文稿文件路径"),
-                "slide_idx": _int_param("幻灯片索引（0-based）"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename", "slide_idx"],
-        },
-    ),
-    Tool(
-        name="ppt_analyze_structure",
-        description="分析演示文稿结构（幻灯片分布、形状统计等）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("演示文稿文件路径"),
-                "session_id": SESSION_ID_PARAM,
-            },
-            "required": ["filename"],
-        },
-    ),
-    Tool(
         name="ppt_get_structure",
         description="获取演示文稿结构（幻灯片与形状详情）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
+                "analyze": _bool_param("是否附带统计分析（形状类型分布、布局分布等）", default=False),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename"],
@@ -1032,11 +807,12 @@ TOOL_DEFINITIONS: list[Tool] = [
     # ==================== 5.4.1 文档管理 ====================
     Tool(
         name="pdf_get_info",
-        description="获取 PDF 元信息（页数、作者、标题等）",
+        description="获取 PDF 元信息（analyze=true 时附带结构分析：页面类型、文本密度等）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径（.pdf）"),
+                "analyze": _bool_param("是否附带结构分析（页面类型、文本密度、表格分布等）", default=False),
             },
             "required": ["filename"],
         },
@@ -1200,14 +976,14 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="pdf_add_annotation",
-        description="添加注释（highlight/text/link）",
+        description="添加注释或书签（annotation_type: highlight/text/link/bookmark）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
                 "page_idx": _int_param("页面索引（0-based）"),
-                "annotation_type": _str_param("注释类型（highlight/text/link）"),
-                "content": _str_param("注释内容"),
+                "annotation_type": _str_param("注释类型（highlight/text/link/bookmark）"),
+                "content": _str_param("注释内容或书签标题"),
                 "x": {"type": "number", "description": "X 坐标（磅）", "default": 72},
                 "y": {"type": "number", "description": "Y 坐标（磅）", "default": 72},
                 "output": _str_param("输出文件路径（可选，默认覆盖原文件）"),
@@ -1215,57 +991,20 @@ TOOL_DEFINITIONS: list[Tool] = [
             "required": ["filename", "page_idx", "annotation_type", "content"],
         },
     ),
-    Tool(
-        name="pdf_add_bookmark",
-        description="添加书签",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("PDF 文件路径"),
-                "title": _str_param("书签标题"),
-                "page_idx": _int_param("目标页面索引（0-based）"),
-                "output": _str_param("输出文件路径（可选，默认覆盖原文件）"),
-            },
-            "required": ["filename", "title", "page_idx"],
-        },
-    ),
     # ==================== 5.4.4 安全与分析 ====================
     Tool(
-        name="pdf_encrypt",
-        description="加密 PDF",
+        name="pdf_manage_security",
+        description="PDF 安全管理（action: encrypt=加密, decrypt=解密）",
         inputSchema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
-                "password": _str_param("加密密码"),
-                "permissions": _array_param("权限列表（可选）", {"type": "string"}),
+                "action": _str_param("操作类型（encrypt/decrypt）"),
+                "password": _str_param("密码"),
+                "permissions": _array_param("权限列表（可选，encrypt 时使用）", {"type": "string"}),
                 "output": _str_param("输出文件路径（可选，默认覆盖原文件）"),
             },
-            "required": ["filename", "password"],
-        },
-    ),
-    Tool(
-        name="pdf_decrypt",
-        description="解密 PDF",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("PDF 文件路径"),
-                "password": _str_param("解密密码"),
-                "output": _str_param("输出文件路径（可选，默认覆盖原文件）"),
-            },
-            "required": ["filename", "password"],
-        },
-    ),
-    Tool(
-        name="pdf_analyze_structure",
-        description="分析 PDF 结构（页面类型、文本密度、表格分布）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "filename": _str_param("PDF 文件路径"),
-            },
-            "required": ["filename"],
+            "required": ["filename", "action", "password"],
         },
     ),
     # ==================== 5.4.5 模板工具 ====================
@@ -1320,29 +1059,19 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="doc_register_template",
-        description="注册新模板到模板库",
+        name="doc_manage_template",
+        description="管理模板（action: register=注册, delete=删除）",
         inputSchema={
             "type": "object",
             "properties": {
+                "action": _str_param("操作类型（register/delete）"),
                 "name": _str_param("模板名称"),
-                "format": _str_param("模板格式（word/excel/ppt/pdf）"),
-                "file_path": _str_param("模板文件路径"),
+                "format": _str_param("模板格式（word/excel/ppt/pdf，register 时必填）"),
+                "file_path": _str_param("模板文件路径（register 时必填）"),
                 "description": _str_param("模板描述", default=""),
                 "placeholders": _array_param("占位符列表（可选）", {"type": "string"}),
             },
-            "required": ["name", "format", "file_path"],
-        },
-    ),
-    Tool(
-        name="doc_delete_template",
-        description="从模板库删除模板",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "template_name": _str_param("模板名称"),
-            },
-            "required": ["template_name"],
+            "required": ["action", "name"],
         },
     ),
     # ==================== 5.5.2 模板应用 ====================
@@ -1385,18 +1114,6 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
-        name="doc_save_session",
-        description="保存 Session 到磁盘（不指定路径则保存回原路径）",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "session_id": _str_param("待保存的 Session ID"),
-                "output_path": _str_param("输出文件路径（可选，默认原路径）"),
-            },
-            "required": ["session_id"],
-        },
-    ),
-    Tool(
         name="doc_close_session",
         description="关闭 Session（save=True 时先保存再关闭）",
         inputSchema={
@@ -1404,6 +1121,7 @@ TOOL_DEFINITIONS: list[Tool] = [
             "properties": {
                 "session_id": _str_param("待关闭的 Session ID"),
                 "save": _bool_param("是否先保存再关闭", default=False),
+                "output_path": _str_param("输出文件路径（可选，save=true 时使用）"),
             },
             "required": ["session_id"],
         },
@@ -1425,15 +1143,13 @@ TOOL_DEFINITIONS: list[Tool] = [
 TOOL_HANDLERS: dict[str, Any] = {
     "word_create_document": word_handler.word_create_document,
     "word_get_info": word_handler.word_get_info,
-    "word_get_text": word_handler.word_get_text,
-    "word_get_outline": word_handler.word_get_outline,
+    "word_extract_text": word_handler.word_extract_text,
     "word_list_documents": word_handler.word_list_documents,
     "word_copy_document": word_handler.word_copy_document,
     "word_add_heading": word_handler.word_add_heading,
     "word_add_paragraph": word_handler.word_add_paragraph,
     "word_add_table": word_handler.word_add_table,
     "word_add_image": word_handler.word_add_image,
-    "word_add_page_break": word_handler.word_add_page_break,
     "word_add_list": word_handler.word_add_list,
     "word_set_header_footer": word_handler.word_set_header_footer,
     "word_generate_toc": word_handler.word_generate_toc,
@@ -1442,41 +1158,28 @@ TOOL_HANDLERS: dict[str, Any] = {
     "word_search_replace": word_handler.word_search_replace,
     "word_delete_paragraph": word_handler.word_delete_paragraph,
     "word_create_style": word_handler.word_create_style,
-    "word_analyze_structure": word_handler.word_analyze_structure,
     "word_extract_tables": word_handler.word_extract_tables,
     # ==================== Excel ====================
     "excel_create_workbook": excel_handler.excel_create_workbook,
-    "excel_get_info": excel_handler.excel_get_info,
-    "excel_list_sheets": excel_handler.excel_list_sheets,
-    "excel_add_sheet": excel_handler.excel_add_sheet,
-    "excel_delete_sheet": excel_handler.excel_delete_sheet,
-    "excel_rename_sheet": excel_handler.excel_rename_sheet,
-    "excel_copy_sheet": excel_handler.excel_copy_sheet,
-    "excel_read_cell": excel_handler.excel_read_cell,
-    "excel_write_cell": excel_handler.excel_write_cell,
-    "excel_read_range": excel_handler.excel_read_range,
-    "excel_write_range": excel_handler.excel_write_range,
-    "excel_insert_row": excel_handler.excel_insert_row,
-    "excel_delete_row": excel_handler.excel_delete_row,
-    "excel_insert_column": excel_handler.excel_insert_column,
-    "excel_delete_column": excel_handler.excel_delete_column,
+    "excel_get_overview": excel_handler.excel_get_overview,
+    "excel_manage_sheet": excel_handler.excel_manage_sheet,
+    "excel_read": excel_handler.excel_read,
+    "excel_write": excel_handler.excel_write,
+    "excel_modify_row": excel_handler.excel_modify_row,
+    "excel_modify_column": excel_handler.excel_modify_column,
     "excel_format_cell": excel_handler.excel_format_cell,
     "excel_apply_formula": excel_handler.excel_apply_formula,
     "excel_create_chart": excel_handler.excel_create_chart,
     "excel_freeze_panes": excel_handler.excel_freeze_panes,
     "excel_sort_data": excel_handler.excel_sort_data,
-    "excel_create_pivot_table": excel_handler.excel_create_pivot_table,
     "excel_add_conditional_format": excel_handler.excel_add_conditional_format,
     "excel_analyze_data": excel_handler.excel_analyze_data,
     "excel_find_duplicates": excel_handler.excel_find_duplicates,
     # ==================== PPT ====================
     "ppt_create_presentation": ppt_handler.ppt_create_presentation,
-    "ppt_get_info": ppt_handler.ppt_get_info,
-    "ppt_list_slides": ppt_handler.ppt_list_slides,
+    "ppt_get_overview": ppt_handler.ppt_get_overview,
     "ppt_add_slide": ppt_handler.ppt_add_slide,
-    "ppt_delete_slide": ppt_handler.ppt_delete_slide,
-    "ppt_move_slide": ppt_handler.ppt_move_slide,
-    "ppt_copy_slide": ppt_handler.ppt_copy_slide,
+    "ppt_manage_slide": ppt_handler.ppt_manage_slide,
     "ppt_add_text": ppt_handler.ppt_add_text,
     "ppt_add_image": ppt_handler.ppt_add_image,
     "ppt_add_table": ppt_handler.ppt_add_table,
@@ -1484,10 +1187,8 @@ TOOL_HANDLERS: dict[str, Any] = {
     "ppt_add_shape": ppt_handler.ppt_add_shape,
     "ppt_set_background": ppt_handler.ppt_set_background,
     "ppt_apply_theme": ppt_handler.ppt_apply_theme,
-    "ppt_set_slide_notes": ppt_handler.ppt_set_slide_notes,
+    "ppt_slide_notes": ppt_handler.ppt_slide_notes,
     "ppt_extract_text": ppt_handler.ppt_extract_text,
-    "ppt_get_slide_notes": ppt_handler.ppt_get_slide_notes,
-    "ppt_analyze_structure": ppt_handler.ppt_analyze_structure,
     "ppt_get_structure": ppt_handler.ppt_get_structure,
     # ==================== PDF ====================
     "pdf_get_info": pdf_handler.pdf_get_info,
@@ -1503,21 +1204,16 @@ TOOL_HANDLERS: dict[str, Any] = {
     "pdf_add_image": pdf_handler.pdf_add_image,
     "pdf_add_watermark": pdf_handler.pdf_add_watermark,
     "pdf_add_annotation": pdf_handler.pdf_add_annotation,
-    "pdf_add_bookmark": pdf_handler.pdf_add_bookmark,
-    "pdf_encrypt": pdf_handler.pdf_encrypt,
-    "pdf_decrypt": pdf_handler.pdf_decrypt,
-    "pdf_analyze_structure": pdf_handler.pdf_analyze_structure,
+    "pdf_manage_security": pdf_handler.pdf_manage_security,
     "pdf_create_from_template": pdf_handler.pdf_create_from_template,
     "pdf_fill_form": pdf_handler.pdf_fill_form,
     # ==================== Doc ====================
     "doc_list_templates": doc_handler.doc_list_templates,
     "doc_get_template_info": doc_handler.doc_get_template_info,
-    "doc_register_template": doc_handler.doc_register_template,
-    "doc_delete_template": doc_handler.doc_delete_template,
+    "doc_manage_template": doc_handler.doc_manage_template,
     "doc_apply_template": doc_handler.doc_apply_template,
     "doc_extract_placeholders": doc_handler.doc_extract_placeholders,
     "doc_open_session": doc_handler.doc_open_session,
-    "doc_save_session": doc_handler.doc_save_session,
     "doc_close_session": doc_handler.doc_close_session,
     "doc_list_sessions": doc_handler.doc_list_sessions,
 }

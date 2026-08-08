@@ -1,4 +1,4 @@
-"""Word 文档处理器 - 21 个工具。
+"""Word 文档处理器 - 18 个工具。
 
 对应方案 5.1 Word 工具集。
 使用 python-docx 实现，支持 Session 内存编辑模式。
@@ -52,7 +52,7 @@ def _save_document(doc: Document, filename: str, session_id: str | None = None) 
             file_lock_mgr.release(validated)
 
 
-# ==================== 5.1.1 文档管理（6 个） ====================
+# ==================== 5.1.1 文档管理（5 个） ====================
 
 
 def word_create_document(
@@ -103,11 +103,15 @@ def word_create_document(
     }
 
 
-def word_get_info(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """获取文档元信息。"""
+def word_get_info(
+    filename: str,
+    detailed: bool = False,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """获取文档元信息（detailed=True 时附带结构分析）。"""
     doc = _get_document(filename, session_id)
     props = doc.core_properties
-    return {
+    result: dict[str, Any] = {
         "filename": filename,
         "title": props.title or "",
         "author": props.author or "",
@@ -119,54 +123,93 @@ def word_get_info(filename: str, session_id: str | None = None) -> dict[str, Any
         "section_count": len(doc.sections),
     }
 
-
-def word_get_text(
-    filename: str, include_tables: bool = True, session_id: str | None = None
-) -> dict[str, Any]:
-    """提取全文文本。"""
-    doc = _get_document(filename, session_id)
-    parts: list[str] = [p.text for p in doc.paragraphs]
-    table_texts: list[list[list[str]]] = []
-
-    if include_tables:
-        for table in doc.tables:
-            rows = []
-            for row in table.rows:
-                rows.append([cell.text for cell in row.cells])
-            table_texts.append(rows)
-
-    return {
-        "filename": filename,
-        "text": "\n".join(parts),
-        "paragraph_count": len(doc.paragraphs),
-        "tables": table_texts if include_tables else [],
-    }
-
-
-def word_get_outline(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """获取文档大纲结构。"""
-    doc = _get_document(filename, session_id)
-    outline: list[dict[str, Any]] = []
-    for idx, para in enumerate(doc.paragraphs):
-        if para.style and para.style.name.startswith("Heading"):
-            level = 0
-            style_name = para.style.name
-            if style_name == "Title":
-                level = 0
-            else:
+    if detailed:
+        # 标题层级统计
+        heading_levels: dict[int, int] = {}
+        style_distribution: dict[str, int] = {}
+        for para in doc.paragraphs:
+            style_name = para.style.name if para.style else "Normal"
+            style_distribution[style_name] = style_distribution.get(style_name, 0) + 1
+            if style_name.startswith("Heading"):
                 try:
                     level = int(style_name.split()[-1])
+                    heading_levels[level] = heading_levels.get(level, 0) + 1
                 except ValueError:
-                    level = 1
-            outline.append(
-                {
-                    "paragraph_idx": idx,
-                    "level": level,
-                    "text": para.text,
-                    "style": style_name,
-                }
-            )
-    return {"filename": filename, "outline": outline}
+                    heading_levels[1] = heading_levels.get(1, 0) + 1
+
+        # 表格统计
+        table_details: list[dict[str, int]] = []
+        for table in doc.tables:
+            table_details.append({"rows": len(table.rows), "cols": len(table.columns)})
+
+        # 图片统计
+        image_count = 0
+        for _shape in doc.inline_shapes:
+            image_count += 1
+
+        total_chars = sum(len(p.text) for p in doc.paragraphs)
+
+        result.update(
+            {
+                "heading_levels": heading_levels,
+                "style_distribution": style_distribution,
+                "table_details": table_details,
+                "image_count": image_count,
+                "total_chars": total_chars,
+            }
+        )
+
+    return result
+
+
+def word_extract_text(
+    filename: str,
+    extract_type: str = "text",
+    include_tables: bool = True,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """提取全文文本或大纲结构。"""
+    InputValidator.validate_choice(extract_type, ["text", "outline", "all"], "extract_type")
+    doc = _get_document(filename, session_id)
+    result: dict[str, Any] = {"filename": filename}
+
+    if extract_type in ("text", "all"):
+        parts: list[str] = [p.text for p in doc.paragraphs]
+        table_texts: list[list[list[str]]] = []
+        if include_tables:
+            for table in doc.tables:
+                rows = []
+                for row in table.rows:
+                    rows.append([cell.text for cell in row.cells])
+                table_texts.append(rows)
+        result["text"] = "\n".join(parts)
+        result["paragraph_count"] = len(doc.paragraphs)
+        result["tables"] = table_texts if include_tables else []
+
+    if extract_type in ("outline", "all"):
+        outline: list[dict[str, Any]] = []
+        for idx, para in enumerate(doc.paragraphs):
+            if para.style and para.style.name.startswith("Heading"):
+                level = 0
+                style_name = para.style.name
+                if style_name == "Title":
+                    level = 0
+                else:
+                    try:
+                        level = int(style_name.split()[-1])
+                    except ValueError:
+                        level = 1
+                outline.append(
+                    {
+                        "paragraph_idx": idx,
+                        "level": level,
+                        "text": para.text,
+                        "style": style_name,
+                    }
+                )
+        result["outline"] = outline
+
+    return result
 
 
 def word_list_documents(directory: str) -> dict[str, Any]:
@@ -194,7 +237,7 @@ def word_copy_document(source: str, destination: str) -> dict[str, Any]:
     return {"source": src, "destination": dst}
 
 
-# ==================== 5.1.2 内容编辑（8 个） ====================
+# ==================== 5.1.2 内容编辑（7 个） ====================
 
 
 def word_add_heading(
@@ -215,26 +258,34 @@ def word_add_heading(
 
 def word_add_paragraph(
     filename: str,
-    text: str,
+    text: str = "",
     style: str | None = None,
     font_size: int | None = None,
     bold: bool = False,
+    page_break: bool = False,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """添加段落。"""
-    InputValidator.validate_text_length(text)
+    """添加段落（可选分页符）。"""
+    if not text and not page_break:
+        raise ToolError("text 和 page_break 至少需要一个")
+    if text:
+        InputValidator.validate_text_length(text)
     doc = _get_document(filename, session_id)
-    para = doc.add_paragraph(style=style) if style else doc.add_paragraph()
-    run = para.add_run(text)
-    if font_size:
-        run.font.size = Pt(font_size)
-    if bold:
-        run.font.bold = True
+    if page_break:
+        doc.add_page_break()
+    if text:
+        para = doc.add_paragraph(style=style) if style else doc.add_paragraph()
+        run = para.add_run(text)
+        if font_size:
+            run.font.size = Pt(font_size)
+        if bold:
+            run.font.bold = True
     _save_document(doc, filename, session_id)
     return {
         "filename": filename,
         "text": text,
         "style": style,
+        "page_break": page_break,
         "paragraph_idx": len(doc.paragraphs) - 1,
     }
 
@@ -298,14 +349,6 @@ def word_add_image(
     doc.add_picture(img, **kwargs)
     _save_document(doc, filename, session_id)
     return {"filename": filename, "image_path": img, "width": width}
-
-
-def word_add_page_break(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """插入分页符。"""
-    doc = _get_document(filename, session_id)
-    doc.add_page_break()
-    _save_document(doc, filename, session_id)
-    return {"filename": filename}
 
 
 def word_add_list(
@@ -596,49 +639,7 @@ def word_create_style(
     return {"filename": filename, "style_name": style_name, "font": font, "size": size}
 
 
-# ==================== 5.1.4 分析工具（2 个） ====================
-
-
-def word_analyze_structure(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """分析文档结构（标题层级、段落分布、表格统计）。"""
-    doc = _get_document(filename, session_id)
-
-    # 标题层级统计
-    heading_levels: dict[int, int] = {}
-    style_dist: dict[str, int] = {}
-    for para in doc.paragraphs:
-        style_name = para.style.name if para.style else "Normal"
-        style_dist[style_name] = style_dist.get(style_name, 0) + 1
-        if style_name.startswith("Heading"):
-            try:
-                level = int(style_name.split()[-1])
-                heading_levels[level] = heading_levels.get(level, 0) + 1
-            except ValueError:
-                heading_levels[1] = heading_levels.get(1, 0) + 1
-
-    # 表格统计
-    table_stats: list[dict[str, int]] = []
-    for table in doc.tables:
-        table_stats.append({"rows": len(table.rows), "cols": len(table.columns)})
-
-    # 图片统计
-    image_count = 0
-    for _shape in doc.inline_shapes:
-        image_count += 1
-
-    total_chars = sum(len(p.text) for p in doc.paragraphs)
-
-    return {
-        "filename": filename,
-        "paragraph_count": len(doc.paragraphs),
-        "table_count": len(doc.tables),
-        "image_count": image_count,
-        "total_chars": total_chars,
-        "heading_levels": heading_levels,
-        "style_distribution": style_dist,
-        "table_details": table_stats,
-        "section_count": len(doc.sections),
-    }
+# ==================== 5.1.4 分析工具（1 个） ====================
 
 
 def word_extract_tables(

@@ -1,4 +1,4 @@
-"""跨格式工具处理器 - 模板管理 6 个 + Session 管理 4 个 = 10 个工具。
+"""跨格式工具处理器 - 模板管理 5 个 + Session 管理 3 个 = 8 个工具。
 
 对应方案 5.5 模板管理工具集 + 5.6 Session 管理工具集。
 """
@@ -14,6 +14,7 @@ from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
 from ..common.template_utils import fill_excel_variables, fill_ppt_variables, fill_word_variables
+from ..common.validator import InputValidator
 
 logger = logging.getLogger("timeverse_office_doc_mcp.doc")
 
@@ -45,34 +46,40 @@ def doc_get_template_info(template_name: str) -> dict[str, Any]:
     }
 
 
-def doc_register_template(
+def doc_manage_template(
+    action: str,
     name: str,
-    format: str,
-    file_path: str,
+    format: str | None = None,
+    file_path: str | None = None,
     description: str = "",
     placeholders: list[str] | None = None,
 ) -> dict[str, Any]:
-    """注册新模板到模板库（将外部文件复制到 templates/{format}/ 并写入索引）。"""
-    result = template_manager.register_template(
-        name=name,
-        format=format,
-        file_path=file_path,
-        description=description,
-        placeholders=placeholders,
-    )
-    return {
-        "name": result["name"],
-        "format": result["format"],
-        "description": result.get("description", ""),
-        "placeholders": result.get("placeholders", []),
-        "registered": True,
-    }
+    """模板注册与删除统一入口。
 
+    action="register"：注册新模板到模板库（将外部文件复制到 templates/{format}/ 并写入索引）。
+    action="delete"：从模板库删除模板（删除索引记录与模板库副本，不影响用户原始文件）。
+    """
+    InputValidator.validate_choice(action, ["register", "delete"], "action")
 
-def doc_delete_template(template_name: str) -> dict[str, Any]:
-    """从模板库删除模板（删除索引记录与模板库副本，不影响用户原始文件）。"""
-    template_manager.delete_template(template_name)
-    return {"deleted": template_name}
+    if action == "register":
+        result = template_manager.register_template(
+            name=name,
+            format=format,
+            file_path=file_path,
+            description=description,
+            placeholders=placeholders,
+        )
+        return {
+            "name": result["name"],
+            "format": result["format"],
+            "description": result.get("description", ""),
+            "placeholders": result.get("placeholders", []),
+            "registered": True,
+        }
+
+    # action == "delete"
+    template_manager.delete_template(name)
+    return {"deleted": name}
 
 
 # ==================== 5.5.2 模板应用与占位符（2 个） ====================
@@ -252,13 +259,18 @@ def doc_save_session(session_id: str, output_path: str | None = None) -> dict[st
     return {"session_id": session_id, "saved_to": validated_out}
 
 
-def doc_close_session(session_id: str, save: bool = False) -> dict[str, Any]:
+def doc_close_session(
+    session_id: str,
+    save: bool = False,
+    output_path: str | None = None,
+) -> dict[str, Any]:
     """关闭 Session。
 
     save=True 时先保存再关闭。
+    output_path 指定时保存到该路径（仅在 save=True 时生效）。
     """
     if save:
-        doc_save_session(session_id)
+        doc_save_session(session_id, output_path)
     session_manager.close_session(session_id)
     return {"session_id": session_id, "closed": True, "saved": save}
 

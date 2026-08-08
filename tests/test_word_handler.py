@@ -80,6 +80,12 @@ class TestWordAddParagraph:
         assert para.runs[0].font.bold is True
         assert para.runs[0].font.size is not None
 
+    def test_page_break(self, doc_path: str) -> None:
+        """插入分页符。"""
+        word_handler.word_create_document(doc_path)
+        result = word_handler.word_add_paragraph(doc_path, page_break=True)
+        assert result["filename"] == doc_path or Path(doc_path).name in result["filename"]
+
 
 class TestWordAddTable:
     """测试添加表格。"""
@@ -118,21 +124,57 @@ class TestWordSearchReplace:
         assert "hello" not in doc.paragraphs[-1].text
 
 
-class TestWordAnalyzeStructure:
-    """测试结构分析。"""
+class TestWordGetInfoDetailed:
+    """测试文档信息（含结构分析）。"""
 
-    def test_analyze(self, doc_path: str) -> None:
-        """分析文档结构。"""
+    def test_basic_info(self, doc_path: str) -> None:
+        """获取基本元信息。"""
+        word_handler.word_create_document(doc_path, title="测试", author="pytest")
+        result = word_handler.word_get_info(doc_path)
+        assert result["title"] == "测试"
+        assert result["paragraph_count"] >= 0
+
+    def test_detailed(self, doc_path: str) -> None:
+        """获取详细结构分析。"""
         word_handler.word_create_document(doc_path)
         word_handler.word_add_heading(doc_path, text="标题1", level=1)
         word_handler.word_add_paragraph(doc_path, text="段落内容")
         word_handler.word_add_table(doc_path, rows=2, cols=2, data=[["A", "B"], ["1", "2"]])
 
-        result = word_handler.word_analyze_structure(doc_path)
+        result = word_handler.word_get_info(doc_path, detailed=True)
         assert result["paragraph_count"] >= 2
         assert result["table_count"] == 1
         assert result["heading_levels"].get(1) == 1
         assert result["table_details"][0]["rows"] == 2
+
+
+class TestWordExtractText:
+    """测试文本提取。"""
+
+    def test_extract_text(self, doc_path: str) -> None:
+        """提取全文文本。"""
+        word_handler.word_create_document(doc_path)
+        word_handler.word_add_paragraph(doc_path, text="Hello World")
+        result = word_handler.word_extract_text(doc_path, extract_type="text")
+        assert "Hello World" in result["text"]
+
+    def test_extract_outline(self, doc_path: str) -> None:
+        """提取大纲。"""
+        word_handler.word_create_document(doc_path)
+        word_handler.word_add_heading(doc_path, text="第一章", level=1)
+        word_handler.word_add_heading(doc_path, text="第二章", level=2)
+        result = word_handler.word_extract_text(doc_path, extract_type="outline")
+        assert len(result["outline"]) == 2
+        assert result["outline"][0]["text"] == "第一章"
+
+    def test_extract_all(self, doc_path: str) -> None:
+        """提取全文和大纲。"""
+        word_handler.word_create_document(doc_path)
+        word_handler.word_add_heading(doc_path, text="标题", level=1)
+        word_handler.word_add_paragraph(doc_path, text="内容")
+        result = word_handler.word_extract_text(doc_path, extract_type="all")
+        assert "text" in result
+        assert "outline" in result
 
 
 class TestWordExtractTables:

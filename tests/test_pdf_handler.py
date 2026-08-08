@@ -44,6 +44,12 @@ class TestPdfGetInfo:
         assert result["page_count"] == 2
         assert result["encrypted"] is False
 
+    def test_get_info_analyze(self, pdf_path: str) -> None:
+        result = pdf_handler.pdf_get_info(pdf_path, analyze=True)
+        assert result["page_count"] == 2
+        assert result["total_chars"] > 0
+        assert len(result["pages"]) == 2
+
 
 class TestPdfExtractText:
     def test_extract_all(self, pdf_path: str) -> None:
@@ -64,14 +70,6 @@ class TestPdfSearchText:
     def test_search_no_match(self, pdf_path: str) -> None:
         result = pdf_handler.pdf_search_text(pdf_path, query="不存在的文本")
         assert result["match_count"] == 0
-
-
-class TestPdfAnalyzeStructure:
-    def test_analyze(self, pdf_path: str) -> None:
-        result = pdf_handler.pdf_analyze_structure(pdf_path)
-        assert result["page_count"] == 2
-        assert result["total_chars"] > 0
-        assert len(result["pages"]) == 2
 
 
 class TestPdfRotatePage:
@@ -100,9 +98,10 @@ class TestPdfAddWatermark:
         assert result["pages_watermarked"] == 2
 
 
-class TestPdfAddBookmark:
+class TestPdfAddAnnotation:
     def test_add_bookmark(self, pdf_path: str) -> None:
-        result = pdf_handler.pdf_add_bookmark(pdf_path, title="第一章", page_idx=0)
+        result = pdf_handler.pdf_add_annotation(pdf_path, page_idx=0, annotation_type="bookmark", content="第一章")
+        assert result["annotation_type"] == "bookmark"
         assert result["title"] == "第一章"
 
 
@@ -130,15 +129,14 @@ class TestPdfSplit:
         assert Path(f"{prefix}_2.pdf").exists()
 
 
-class TestPdfEncryptDecrypt:
+class TestPdfManageSecurity:
     def test_encrypt_and_decrypt(self, pdf_path: str) -> None:
         # 加密
-        pdf_handler.pdf_encrypt(pdf_path, password="secret123")
-        # 加密后直接读取会报错，用 PdfReader 底层验证
+        pdf_handler.pdf_manage_security(pdf_path, action="encrypt", password="secret123")
         reader = PdfReader(pdf_path)
         assert reader.is_encrypted is True
 
         # 解密
-        pdf_handler.pdf_decrypt(pdf_path, password="secret123")
+        pdf_handler.pdf_manage_security(pdf_path, action="decrypt", password="secret123")
         info = pdf_handler.pdf_get_info(pdf_path)
         assert info["encrypted"] is False

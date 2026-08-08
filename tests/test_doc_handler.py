@@ -44,7 +44,8 @@ def template_docx(workspace: Path) -> str:
 class TestDocRegisterAndDelete:
     def test_register_and_list(self, template_docx: str) -> None:
         # 注册模板
-        result = doc_handler.doc_register_template(
+        result = doc_handler.doc_manage_template(
+            action="register",
             name="test_tpl",
             format="word",
             file_path=template_docx,
@@ -60,7 +61,8 @@ class TestDocRegisterAndDelete:
         assert "test_tpl" in names
 
     def test_get_template_info(self, template_docx: str) -> None:
-        doc_handler.doc_register_template(
+        doc_handler.doc_manage_template(
+            action="register",
             name="info_tpl",
             format="word",
             file_path=template_docx,
@@ -72,12 +74,13 @@ class TestDocRegisterAndDelete:
         assert len(info["placeholders"]) >= 2  # title, author, date
 
     def test_delete_template(self, template_docx: str) -> None:
-        doc_handler.doc_register_template(
+        doc_handler.doc_manage_template(
+            action="register",
             name="del_tpl",
             format="word",
             file_path=template_docx,
         )
-        doc_handler.doc_delete_template("del_tpl")
+        doc_handler.doc_manage_template(action="delete", name="del_tpl")
         listing = doc_handler.doc_list_templates()
         names = [t["name"] for t in listing["templates"]]
         assert "del_tpl" not in names
@@ -86,7 +89,8 @@ class TestDocRegisterAndDelete:
 class TestDocApplyTemplate:
     def test_apply_word_template(self, template_docx: str, workspace: Path) -> None:
         # 注册模板
-        doc_handler.doc_register_template(
+        doc_handler.doc_manage_template(
+            action="register",
             name="apply_tpl",
             format="word",
             file_path=template_docx,
@@ -113,7 +117,8 @@ class TestDocApplyTemplate:
 
 class TestDocExtractPlaceholders:
     def test_extract(self, template_docx: str) -> None:
-        doc_handler.doc_register_template(
+        doc_handler.doc_manage_template(
+            action="register",
             name="ph_tpl",
             format="word",
             file_path=template_docx,
@@ -143,16 +148,8 @@ class TestDocSession:
         listing = doc_handler.doc_list_sessions()
         assert listing["count"] >= 1
 
-        # 保存 Session
-        doc_handler.doc_save_session(session_id)
-        # 实际写盘需要调用 document.save
-        from timeverse_office_doc_mcp.common.session import session_manager
-
-        doc = session_manager.get_session(session_id).document
-        doc.save(docx_path)
-
-        # 关闭 Session
-        doc_handler.doc_close_session(session_id)
+        # 保存并关闭 Session
+        doc_handler.doc_close_session(session_id, save=True, output_path=docx_path)
 
         # 验证 Session 已关闭
         listing = doc_handler.doc_list_sessions()

@@ -48,11 +48,11 @@ class TestPptSlideOperations:
     def test_add_and_delete_slide(self, pptx_path: str) -> None:
         ppt_handler.ppt_create_presentation(pptx_path)
         ppt_handler.ppt_add_slide(pptx_path, layout=6)
-        info_before = ppt_handler.ppt_get_info(pptx_path)
+        info_before = ppt_handler.ppt_get_overview(pptx_path)
         count_before = info_before["slide_count"]
 
-        ppt_handler.ppt_delete_slide(pptx_path, 0)
-        info_after = ppt_handler.ppt_get_info(pptx_path)
+        ppt_handler.ppt_manage_slide(pptx_path, "delete", 0)
+        info_after = ppt_handler.ppt_get_overview(pptx_path)
         assert info_after["slide_count"] == count_before - 1
 
     def test_add_slide_invalid_layout(self, pptx_path: str) -> None:
@@ -92,12 +92,12 @@ class TestPptSetBackground:
         assert result["background_color"] == "FF0000"
 
 
-class TestPptSetSlideNotes:
+class TestPptSlideNotes:
     def test_set_and_get_notes(self, pptx_path: str) -> None:
         ppt_handler.ppt_create_presentation(pptx_path)
         ppt_handler.ppt_add_slide(pptx_path, layout=6)
-        ppt_handler.ppt_set_slide_notes(pptx_path, 0, notes_text="这是备注")
-        result = ppt_handler.ppt_get_slide_notes(pptx_path, 0)
+        ppt_handler.ppt_slide_notes(pptx_path, 0, action="set", notes_text="这是备注")
+        result = ppt_handler.ppt_slide_notes(pptx_path, 0, action="get")
         assert "这是备注" in result["notes"]
 
 
@@ -112,12 +112,18 @@ class TestPptExtractText:
         assert found
 
 
-class TestPptAnalyzeStructure:
+class TestPptGetStructure:
+    def test_structure(self, pptx_path: str) -> None:
+        ppt_handler.ppt_create_presentation(pptx_path)
+        ppt_handler.ppt_add_slide(pptx_path, layout=6)
+        result = ppt_handler.ppt_get_structure(pptx_path)
+        assert result["slide_count"] >= 1
+
     def test_analyze(self, pptx_path: str) -> None:
         ppt_handler.ppt_create_presentation(pptx_path)
         ppt_handler.ppt_add_slide(pptx_path, layout=6)
         ppt_handler.ppt_add_text(pptx_path, 0, text="标题")
         ppt_handler.ppt_add_table(pptx_path, 0, rows=2, cols=2, data=[["A", "B"], ["1", "2"]])
-        result = ppt_handler.ppt_analyze_structure(pptx_path)
+        result = ppt_handler.ppt_get_structure(pptx_path, analyze=True)
         assert result["slide_count"] >= 1
         assert result["total_shapes"] >= 2

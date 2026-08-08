@@ -1,4 +1,4 @@
-"""PowerPoint 演示文稿处理器 - 19 个工具。
+"""PowerPoint 演示文稿处理器 - 14 个工具。
 
 对应方案 5.3 PowerPoint 工具集。
 使用 python-pptx 实现，支持 Session 内存编辑模式。
@@ -204,7 +204,7 @@ def _shape_type_name(shape: Any) -> str:
     return shape.shape_type.name if shape.shape_type else "unknown"
 
 
-# ==================== 5.3.1 演示文稿管理（7 个） ====================
+# ==================== 5.3.1 演示文稿管理（4 个） ====================
 
 
 def ppt_create_presentation(
@@ -246,11 +246,18 @@ def ppt_create_presentation(
     }
 
 
-def ppt_get_info(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """获取演示文稿元信息（尺寸、幻灯片数、模板等）。"""
+def ppt_get_overview(
+    filename: str,
+    list_slides: bool = False,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """获取演示文稿元信息（尺寸、幻灯片数、模板等）。
+
+    当 list_slides=True 时，额外返回 slides 字段（每张幻灯片概览）。
+    """
     prs = _get_presentation(filename, session_id)
     props = prs.core_properties
-    return {
+    result: dict[str, Any] = {
         "filename": filename,
         "title": props.title or "",
         "author": props.author or "",
@@ -262,33 +269,30 @@ def ppt_get_info(filename: str, session_id: str | None = None) -> dict[str, Any]
         "slide_height": _emu_to_inches(prs.slide_height),
         "layout_count": len(prs.slide_layouts),
     }
-
-
-def ppt_list_slides(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """列出所有幻灯片概览。"""
-    prs = _get_presentation(filename, session_id)
-    slides: list[dict[str, Any]] = []
-    for idx, slide in enumerate(prs.slides):
-        shape_count = len(slide.shapes)
-        text_preview = ""
-        for shape in slide.shapes:
-            if shape.has_text_frame and shape.text_frame.text.strip():
-                text_preview = shape.text_frame.text.strip()[:50]
-                break
-        notes_text = ""
-        if slide.has_notes_slide:
-            notes_text = slide.notes_slide.notes_text_frame.text[:80]
-        slides.append(
-            {
-                "slide_idx": idx,
-                "layout": slide.slide_layout.name,
-                "shape_count": shape_count,
-                "text_preview": text_preview,
-                "has_notes": slide.has_notes_slide,
-                "notes_preview": notes_text,
-            }
-        )
-    return {"filename": filename, "slide_count": len(slides), "slides": slides}
+    if list_slides:
+        slides: list[dict[str, Any]] = []
+        for idx, slide in enumerate(prs.slides):
+            shape_count = len(slide.shapes)
+            text_preview = ""
+            for shape in slide.shapes:
+                if shape.has_text_frame and shape.text_frame.text.strip():
+                    text_preview = shape.text_frame.text.strip()[:50]
+                    break
+            notes_text = ""
+            if slide.has_notes_slide:
+                notes_text = slide.notes_slide.notes_text_frame.text[:80]
+            slides.append(
+                {
+                    "slide_idx": idx,
+                    "layout": slide.slide_layout.name,
+                    "shape_count": shape_count,
+                    "text_preview": text_preview,
+                    "has_notes": slide.has_notes_slide,
+                    "notes_preview": notes_text,
+                }
+            )
+        result["slides"] = slides
+    return result
 
 
 def ppt_add_slide(
@@ -321,67 +325,60 @@ def ppt_add_slide(
     }
 
 
-def ppt_delete_slide(
+def ppt_manage_slide(
     filename: str,
+    action: str,
     slide_idx: int,
+    new_idx: int | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """删除指定幻灯片。"""
+    """管理幻灯片：删除、移动、复制。
+
+    action="delete": 删除指定幻灯片
+    action="move": 移动幻灯片到 new_idx 位置
+    action="copy": 复制幻灯片（副本插入到原幻灯片之后）
+    """
+    InputValidator.validate_choice(action, ["delete", "move", "copy"], "action")
     prs = _get_presentation(filename, session_id)
     slide_count = len(prs.slides)
     if slide_idx < 0 or slide_idx >= slide_count:
         raise ToolError(f"幻灯片索引超出范围: {slide_idx}（共 {slide_count} 张）")
-    sld_id_lst = prs.slides._sldIdLst
-    sld_id = list(sld_id_lst)[slide_idx]
-    r_id = sld_id.get(qn("r:id"))
-    sld_id_lst.remove(sld_id)
-    if r_id:
-        prs.part.drop_rel(r_id)
-    _save_presentation(prs, filename, session_id)
-    return {
-        "filename": filename,
-        "deleted_slide_idx": slide_idx,
-        "remaining_slides": len(prs.slides),
-    }
 
+    if action == "delete":
+        sld_id_lst = prs.slides._sldIdLst
+        sld_id = list(sld_id_lst)[slide_idx]
+        r_id = sld_id.get(qn("r:id"))
+        sld_id_lst.remove(sld_id)
+        if r_id:
+            prs.part.drop_rel(r_id)
+        _save_presentation(prs, filename, session_id)
+        return {
+            "filename": filename,
+            "action": action,
+            "deleted_slide_idx": slide_idx,
+            "remaining_slides": len(prs.slides),
+        }
 
-def ppt_move_slide(
-    filename: str,
-    slide_idx: int,
-    new_idx: int,
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """移动幻灯片到新位置。"""
-    prs = _get_presentation(filename, session_id)
-    slide_count = len(prs.slides)
-    if slide_idx < 0 or slide_idx >= slide_count:
-        raise ToolError(f"幻灯片索引超出范围: {slide_idx}（共 {slide_count} 张）")
-    if new_idx < 0 or new_idx >= slide_count:
-        raise ToolError(f"目标索引超出范围: {new_idx}（共 {slide_count} 张）")
-    sld_id_lst = prs.slides._sldIdLst
-    sld_ids = list(sld_id_lst)
-    target = sld_ids[slide_idx]
-    sld_id_lst.remove(target)
-    sld_id_lst.insert(new_idx, target)
-    _save_presentation(prs, filename, session_id)
-    return {
-        "filename": filename,
-        "from_idx": slide_idx,
-        "to_idx": new_idx,
-        "slide_count": len(prs.slides),
-    }
+    if action == "move":
+        if new_idx is None:
+            raise ToolError("move 操作需要提供 new_idx 参数")
+        if new_idx < 0 or new_idx >= slide_count:
+            raise ToolError(f"目标索引超出范围: {new_idx}（共 {slide_count} 张）")
+        sld_id_lst = prs.slides._sldIdLst
+        sld_ids = list(sld_id_lst)
+        target = sld_ids[slide_idx]
+        sld_id_lst.remove(target)
+        sld_id_lst.insert(new_idx, target)
+        _save_presentation(prs, filename, session_id)
+        return {
+            "filename": filename,
+            "action": action,
+            "from_idx": slide_idx,
+            "to_idx": new_idx,
+            "slide_count": len(prs.slides),
+        }
 
-
-def ppt_copy_slide(
-    filename: str,
-    slide_idx: int,
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """复制幻灯片（副本插入到原幻灯片之后）。"""
-    prs = _get_presentation(filename, session_id)
-    slide_count = len(prs.slides)
-    if slide_idx < 0 or slide_idx >= slide_count:
-        raise ToolError(f"幻灯片索引超出范围: {slide_idx}（共 {slide_count} 张）")
+    # action == "copy"
     src_slide = prs.slides[slide_idx]
     src_layout = src_slide.slide_layout
 
@@ -406,12 +403,13 @@ def ppt_copy_slide(
     sld_id_lst.remove(copied)
     sld_id_lst.insert(slide_idx + 1, copied)
 
-    new_idx = slide_idx + 1
+    new_slide_idx = slide_idx + 1
     _save_presentation(prs, filename, session_id)
     return {
         "filename": filename,
+        "action": action,
         "source_slide_idx": slide_idx,
-        "new_slide_idx": new_idx,
+        "new_slide_idx": new_slide_idx,
         "slide_count": len(prs.slides),
     }
 
@@ -654,16 +652,37 @@ def ppt_apply_theme(
     }
 
 
-def ppt_set_slide_notes(
+def ppt_slide_notes(
     filename: str,
     slide_idx: int,
-    notes_text: str,
+    action: str = "get",
+    notes_text: str | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """设置演讲者备注。"""
-    InputValidator.validate_text_length(notes_text)
+    """获取或设置演讲者备注。
+
+    action="get": 返回备注文本与是否包含备注
+    action="set": 设置备注文本（notes_text 必填）
+    """
+    InputValidator.validate_choice(action, ["get", "set"], "action")
     prs = _get_presentation(filename, session_id)
     slide = _get_slide(prs, slide_idx)
+
+    if action == "get":
+        notes_text_val = ""
+        if slide.has_notes_slide:
+            notes_text_val = slide.notes_slide.notes_text_frame.text
+        return {
+            "filename": filename,
+            "slide_idx": slide_idx,
+            "notes": notes_text_val,
+            "has_notes": slide.has_notes_slide,
+        }
+
+    # action == "set"
+    if notes_text is None:
+        raise ToolError("set 操作需要提供 notes_text 参数")
+    InputValidator.validate_text_length(notes_text)
     slide.notes_slide.notes_text_frame.text = notes_text
     _save_presentation(prs, filename, session_id)
     return {
@@ -673,7 +692,7 @@ def ppt_set_slide_notes(
     }
 
 
-# ==================== 5.3.3 分析工具（4 个） ====================
+# ==================== 5.3.3 分析工具（2 个） ====================
 
 
 def ppt_extract_text(filename: str, session_id: str | None = None) -> dict[str, Any]:
@@ -706,80 +725,15 @@ def ppt_extract_text(filename: str, session_id: str | None = None) -> dict[str, 
     }
 
 
-def ppt_get_slide_notes(
+def ppt_get_structure(
     filename: str,
-    slide_idx: int,
+    analyze: bool = False,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """获取指定幻灯片的演讲者备注。"""
-    prs = _get_presentation(filename, session_id)
-    slide = _get_slide(prs, slide_idx)
-    notes_text = ""
-    if slide.has_notes_slide:
-        notes_text = slide.notes_slide.notes_text_frame.text
-    return {
-        "filename": filename,
-        "slide_idx": slide_idx,
-        "notes": notes_text,
-        "has_notes": slide.has_notes_slide,
-    }
+    """获取完整结构树。
 
-
-def ppt_analyze_structure(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """分析结构（幻灯片分布、元素统计、布局分析）。"""
-    structure = ppt_get_structure(filename, session_id)
-
-    type_dist: dict[str, int] = {}
-    layout_dist: dict[str, int] = {}
-    slide_details: list[dict[str, Any]] = []
-    total_shapes = 0
-    total_chars = 0
-    notes_count = 0
-
-    for slide in structure["slides"]:
-        layout_name = slide["layout"]
-        layout_dist[layout_name] = layout_dist.get(layout_name, 0) + 1
-        shape_types: dict[str, int] = {}
-        slide_chars = 0
-        for shape in slide["shapes"]:
-            type_name = shape["type"]
-            type_dist[type_name] = type_dist.get(type_name, 0) + 1
-            shape_types[type_name] = shape_types.get(type_name, 0) + 1
-            if "text" in shape:
-                slide_chars += len(shape["text"])
-        total_shapes += slide["shape_count"]
-        total_chars += slide_chars
-        if slide["notes"].strip():
-            notes_count += 1
-        slide_details.append(
-            {
-                "slide_idx": slide["slide_idx"],
-                "layout": layout_name,
-                "shape_count": slide["shape_count"],
-                "shape_types": shape_types,
-                "text_chars": slide_chars,
-            }
-        )
-
-    slide_count = structure["slide_count"]
-    avg_shapes = round(total_shapes / slide_count, 2) if slide_count else 0.0
-    return {
-        "filename": filename,
-        "slide_count": slide_count,
-        "slide_width": structure["slide_width"],
-        "slide_height": structure["slide_height"],
-        "total_shapes": total_shapes,
-        "avg_shapes_per_slide": avg_shapes,
-        "total_text_chars": total_chars,
-        "slides_with_notes": notes_count,
-        "shape_type_distribution": type_dist,
-        "layout_distribution": layout_dist,
-        "slide_details": slide_details,
-    }
-
-
-def ppt_get_structure(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """获取完整结构树。"""
+    当 analyze=True 时，额外返回结构分析字段（形状分布、布局分布、统计信息）。
+    """
     prs = _get_presentation(filename, session_id)
     slides: list[dict[str, Any]] = []
     for idx, slide in enumerate(prs.slides):
@@ -815,10 +769,55 @@ def ppt_get_structure(filename: str, session_id: str | None = None) -> dict[str,
                 "notes": notes_text,
             }
         )
-    return {
+    result: dict[str, Any] = {
         "filename": filename,
         "slide_width": _emu_to_inches(prs.slide_width),
         "slide_height": _emu_to_inches(prs.slide_height),
         "slide_count": len(prs.slides),
         "slides": slides,
     }
+
+    if analyze:
+        type_dist: dict[str, int] = {}
+        layout_dist: dict[str, int] = {}
+        slide_details: list[dict[str, Any]] = []
+        total_shapes = 0
+        total_chars = 0
+        notes_count = 0
+
+        for slide in slides:
+            layout_name = slide["layout"]
+            layout_dist[layout_name] = layout_dist.get(layout_name, 0) + 1
+            shape_types: dict[str, int] = {}
+            slide_chars = 0
+            for shape in slide["shapes"]:
+                type_name = shape["type"]
+                type_dist[type_name] = type_dist.get(type_name, 0) + 1
+                shape_types[type_name] = shape_types.get(type_name, 0) + 1
+                if "text" in shape:
+                    slide_chars += len(shape["text"])
+            total_shapes += slide["shape_count"]
+            total_chars += slide_chars
+            if slide["notes"].strip():
+                notes_count += 1
+            slide_details.append(
+                {
+                    "slide_idx": slide["slide_idx"],
+                    "layout": layout_name,
+                    "shape_count": slide["shape_count"],
+                    "shape_types": shape_types,
+                    "text_chars": slide_chars,
+                }
+            )
+
+        slide_count = result["slide_count"]
+        avg_shapes = round(total_shapes / slide_count, 2) if slide_count else 0.0
+        result["total_shapes"] = total_shapes
+        result["avg_shapes_per_slide"] = avg_shapes
+        result["total_text_chars"] = total_chars
+        result["slides_with_notes"] = notes_count
+        result["shape_type_distribution"] = type_dist
+        result["layout_distribution"] = layout_dist
+        result["slide_details"] = slide_details
+
+    return result

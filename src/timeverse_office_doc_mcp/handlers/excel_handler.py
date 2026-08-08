@@ -1,4 +1,4 @@
-"""Excel 文档处理器 - 24 个工具。
+"""Excel 文档处理器 - 15 个工具。
 
 对应方案 5.2 Excel 工具集。使用 openpyxl + pandas 实现。
 """
@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import pandas as pd
@@ -57,7 +58,7 @@ def _get_sheet(wb: Workbook, sheet_name: str) -> Any:
     return wb[sheet_name]
 
 
-# ==================== 5.2.1 工作簿管理（7 个） ====================
+# ==================== 5.2.1 工作簿管理（3 个） ====================
 
 
 def excel_create_workbook(
@@ -100,7 +101,7 @@ def excel_create_workbook(
     }
 
 
-def excel_get_info(filename: str, session_id: str | None = None) -> dict[str, Any]:
+def excel_get_overview(filename: str, session_id: str | None = None) -> dict[str, Any]:
     """获取工作簿信息。"""
     wb = _get_workbook(filename, session_id)
     sheets_info = []
@@ -120,112 +121,99 @@ def excel_get_info(filename: str, session_id: str | None = None) -> dict[str, An
     }
 
 
-def excel_list_sheets(filename: str, session_id: str | None = None) -> dict[str, Any]:
-    """列出工作表。"""
-    wb = _get_workbook(filename, session_id)
-    return {"filename": filename, "sheets": wb.sheetnames}
-
-
-def excel_add_sheet(
-    filename: str, sheet_name: str, session_id: str | None = None
-) -> dict[str, Any]:
-    """添加工作表。"""
-    wb = _get_workbook(filename, session_id)
-    if sheet_name in wb.sheetnames:
-        raise ToolError(f"工作表已存在: {sheet_name}")
-    wb.create_sheet(title=sheet_name)
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet_name": sheet_name, "sheets": wb.sheetnames}
-
-
-def excel_delete_sheet(
-    filename: str, sheet_name: str, session_id: str | None = None
-) -> dict[str, Any]:
-    """删除工作表。"""
-    wb = _get_workbook(filename, session_id)
-    _get_sheet(wb, sheet_name)
-    if len(wb.sheetnames) <= 1:
-        raise ToolError("不能删除最后一个工作表")
-    wb.remove(wb[sheet_name])
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "deleted": sheet_name, "sheets": wb.sheetnames}
-
-
-def excel_rename_sheet(
-    filename: str, old_name: str, new_name: str, session_id: str | None = None
-) -> dict[str, Any]:
-    """重命名工作表。"""
-    wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, old_name)
-    if new_name in wb.sheetnames:
-        raise ToolError(f"工作表名已存在: {new_name}")
-    ws.title = new_name
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "old_name": old_name, "new_name": new_name}
-
-
-def excel_copy_sheet(
-    filename: str, source: str, target: str, session_id: str | None = None
-) -> dict[str, Any]:
-    """复制工作表。"""
-    wb = _get_workbook(filename, session_id)
-    src_ws = _get_sheet(wb, source)
-    if target in wb.sheetnames:
-        raise ToolError(f"目标工作表已存在: {target}")
-    new_ws = wb.copy_worksheet(src_ws)
-    new_ws.title = target
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "source": source, "target": target}
-
-
-# ==================== 5.2.2 数据读写（8 个） ====================
-
-
-def excel_read_cell(
-    filename: str, sheet: str, cell_ref: str, session_id: str | None = None
-) -> dict[str, Any]:
-    """读取单元格。"""
-    wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, sheet)
-    cell = ws[cell_ref]
-    return {"filename": filename, "sheet": sheet, "cell": cell_ref, "value": cell.value}
-
-
-def excel_write_cell(
+def excel_manage_sheet(
     filename: str,
-    sheet: str,
-    cell_ref: str,
-    value: Any,
+    action: str,
+    sheet_name: str | None = None,
+    new_name: str | None = None,
+    source: str | None = None,
+    target: str | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """写入单元格。"""
+    """管理工作表（add / delete / rename / copy）。"""
+    InputValidator.validate_choice(action, ["add", "delete", "rename", "copy"], "action")
     wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, sheet)
-    ws[cell_ref] = value
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet": sheet, "cell": cell_ref, "value": value}
+
+    if action == "add":
+        if not sheet_name:
+            raise ToolError("add 操作需要 sheet_name 参数")
+        if sheet_name in wb.sheetnames:
+            raise ToolError(f"工作表已存在: {sheet_name}")
+        wb.create_sheet(title=sheet_name)
+        _save_workbook(wb, filename, session_id)
+        return {"filename": filename, "action": action, "sheet_name": sheet_name, "sheets": wb.sheetnames}
+
+    if action == "delete":
+        if not sheet_name:
+            raise ToolError("delete 操作需要 sheet_name 参数")
+        _get_sheet(wb, sheet_name)
+        if len(wb.sheetnames) <= 1:
+            raise ToolError("不能删除最后一个工作表")
+        wb.remove(wb[sheet_name])
+        _save_workbook(wb, filename, session_id)
+        return {"filename": filename, "action": action, "deleted": sheet_name, "sheets": wb.sheetnames}
+
+    if action == "rename":
+        if not sheet_name or not new_name:
+            raise ToolError("rename 操作需要 sheet_name 和 new_name 参数")
+        ws = _get_sheet(wb, sheet_name)
+        if new_name in wb.sheetnames:
+            raise ToolError(f"工作表名已存在: {new_name}")
+        ws.title = new_name
+        _save_workbook(wb, filename, session_id)
+        return {"filename": filename, "action": action, "old_name": sheet_name, "new_name": new_name}
+
+    if action == "copy":
+        if not source or not target:
+            raise ToolError("copy 操作需要 source 和 target 参数")
+        src_ws = _get_sheet(wb, source)
+        if target in wb.sheetnames:
+            raise ToolError(f"目标工作表已存在: {target}")
+        new_ws = wb.copy_worksheet(src_ws)
+        new_ws.title = target
+        _save_workbook(wb, filename, session_id)
+        return {"filename": filename, "action": action, "source": source, "target": target}
+
+    raise ToolError(f"未知操作: {action}")
 
 
-def excel_read_range(
-    filename: str, sheet: str, range_str: str, session_id: str | None = None
+# ==================== 5.2.2 数据读写（4 个） ====================
+
+
+def excel_read(
+    filename: str,
+    sheet: str,
+    range_str: str,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
-    """读取区域数据。"""
-    InputValidator.validate_range(range_str)
+    """读取单元格或区域数据。
+
+    range_str 为单个单元格（如 "A1"）时返回 {"value": ...}，
+    为区域（如 "A1:C10"）时返回 {"data": [[...]]}。
+    """
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
+
+    # 单元格模式：不含冒号且匹配 A1 格式
+    if ":" not in range_str and re.match(r"^[A-Z]+\d+$", range_str):
+        cell = ws[range_str]
+        return {"filename": filename, "sheet": sheet, "cell": range_str, "value": cell.value}
+
+    # 区域模式
+    InputValidator.validate_range(range_str)
     cell_range = ws[range_str]
     data = [[cell.value for cell in row] for row in cell_range]
     return {"filename": filename, "sheet": sheet, "range": range_str, "data": data}
 
 
-def excel_write_range(
+def excel_write(
     filename: str,
     sheet: str,
     start_cell: str,
     data: list[list[Any]],
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """批量写入区域。"""
+    """批量写入区域（data 始终为二维数组，单单元格时传 [[value]]）。"""
     if not data:
         raise ToolError("数据不能为空")
     wb = _get_workbook(filename, session_id)
@@ -244,71 +232,49 @@ def excel_write_range(
     }
 
 
-def excel_insert_row(
+def excel_modify_row(
     filename: str,
     sheet: str,
     row_idx: int,
+    action: str = "insert",
     count: int = 1,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """插入行。"""
+    """插入或删除行。"""
+    InputValidator.validate_choice(action, ["insert", "delete"], "action")
     InputValidator.validate_positive_int(row_idx, "row_idx")
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
-    ws.insert_rows(row_idx, count)
+    if action == "insert":
+        ws.insert_rows(row_idx, count)
+    else:
+        ws.delete_rows(row_idx, count)
     _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet": sheet, "row_idx": row_idx, "count": count}
+    return {"filename": filename, "sheet": sheet, "row_idx": row_idx, "action": action, "count": count}
 
 
-def excel_delete_row(
-    filename: str,
-    sheet: str,
-    row_idx: int,
-    count: int = 1,
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """删除行。"""
-    InputValidator.validate_positive_int(row_idx, "row_idx")
-    wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, sheet)
-    ws.delete_rows(row_idx, count)
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet": sheet, "row_idx": row_idx, "count": count}
-
-
-def excel_insert_column(
+def excel_modify_column(
     filename: str,
     sheet: str,
     col_idx: int,
+    action: str = "insert",
     count: int = 1,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """插入列。"""
+    """插入或删除列。"""
+    InputValidator.validate_choice(action, ["insert", "delete"], "action")
     InputValidator.validate_positive_int(col_idx, "col_idx")
     wb = _get_workbook(filename, session_id)
     ws = _get_sheet(wb, sheet)
-    ws.insert_cols(col_idx, count)
+    if action == "insert":
+        ws.insert_cols(col_idx, count)
+    else:
+        ws.delete_cols(col_idx, count)
     _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet": sheet, "col_idx": col_idx, "count": count}
+    return {"filename": filename, "sheet": sheet, "col_idx": col_idx, "action": action, "count": count}
 
 
-def excel_delete_column(
-    filename: str,
-    sheet: str,
-    col_idx: int,
-    count: int = 1,
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """删除列。"""
-    InputValidator.validate_positive_int(col_idx, "col_idx")
-    wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, sheet)
-    ws.delete_cols(col_idx, count)
-    _save_workbook(wb, filename, session_id)
-    return {"filename": filename, "sheet": sheet, "col_idx": col_idx, "count": count}
-
-
-# ==================== 5.2.3 格式化与高级（7 个） ====================
+# ==================== 5.2.3 格式化与高级（6 个） ====================
 
 
 def excel_format_cell(
@@ -467,60 +433,6 @@ def excel_sort_data(
         "key_column": key_column,
         "ascending": ascending,
         "rows_sorted": len(rows_data),
-    }
-
-
-def excel_create_pivot_table(
-    filename: str,
-    source_sheet: str,
-    source_range: str,
-    target_sheet: str,
-    rows: str,
-    cols: str,
-    values: str,
-    agg_func: str = "sum",
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """创建数据透视表（用 pandas 实现）。"""
-    wb = _get_workbook(filename, session_id)
-    ws = _get_sheet(wb, source_sheet)
-
-    min_col, min_row, max_col, max_row = range_boundaries(source_range)
-    data_rows = []
-    headers = []
-    for c in range(min_col, max_col + 1):
-        headers.append(str(ws.cell(row=min_row, column=c).value))
-    for r in range(min_row + 1, max_row + 1):
-        row_vals = [ws.cell(row=r, column=c).value for c in range(min_col, max_col + 1)]
-        data_rows.append(row_vals)
-
-    df = pd.DataFrame(data_rows, columns=headers)
-    agg_map = {"sum": "sum", "mean": "mean", "count": "count", "max": "max", "min": "min"}
-    agg = agg_map.get(agg_func, "sum")
-    pivot = df.pivot_table(index=rows, columns=cols, values=values, aggfunc=agg, fill_value=0)
-
-    if target_sheet not in wb.sheetnames:
-        wb.create_sheet(title=target_sheet)
-    target_ws = wb[target_sheet]
-
-    target_ws.cell(row=1, column=1, value=f"{rows} \\ {cols}")
-    for c_idx, col_name in enumerate(pivot.columns, 2):
-        target_ws.cell(row=1, column=c_idx, value=str(col_name))
-    for r_idx, (idx_name, row_data) in enumerate(pivot.iterrows(), 2):
-        target_ws.cell(row=r_idx, column=1, value=str(idx_name))
-        for c_idx, val in enumerate(row_data, 2):
-            target_ws.cell(row=r_idx, column=c_idx, value=val if pd.notna(val) else 0)
-
-    _save_workbook(wb, filename, session_id)
-    return {
-        "filename": filename,
-        "target_sheet": target_sheet,
-        "rows": rows,
-        "cols": cols,
-        "values": values,
-        "agg_func": agg_func,
-        "pivot_rows": len(pivot),
-        "pivot_cols": len(pivot.columns),
     }
 
 

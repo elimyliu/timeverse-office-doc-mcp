@@ -1,4 +1,4 @@
-"""PDF 文档处理器 - 19 个工具。
+"""PDF 文档处理器 - 16 个工具。
 
 对应方案 5.4 PDF 工具集。使用 pdfplumber + pypdf + reportlab 实现。
 """
@@ -43,8 +43,11 @@ def _save_pdf(writer: PdfWriter, output: str) -> None:
 # ==================== 5.4.1 文档管理（4 个） ====================
 
 
-def pdf_get_info(filename: str) -> dict[str, Any]:
-    """获取 PDF 元信息（页数、作者、标题等）。"""
+def pdf_get_info(
+    filename: str,
+    analyze: bool = False,
+) -> dict[str, Any]:
+    """获取 PDF 元信息（页数、作者、标题等）。当 analyze=True 时同时分析文档结构。"""
     validated = _validate_pdf(filename)
     reader = PdfReader(validated)
     encrypted = reader.is_encrypted
@@ -54,7 +57,7 @@ def pdf_get_info(filename: str) -> dict[str, Any]:
             meta = reader.metadata or {}
         except Exception:
             meta = {}
-    return {
+    result: dict[str, Any] = {
         "filename": filename,
         "page_count": len(reader.pages),
         "title": str(meta.get("/Title", "")) if meta else "",
@@ -63,6 +66,52 @@ def pdf_get_info(filename: str) -> dict[str, Any]:
         "creator": str(meta.get("/Creator", "")) if meta else "",
         "encrypted": encrypted,
     }
+
+    if analyze:
+        page_analyses: list[dict[str, Any]] = []
+        total_chars = 0
+        total_tables = 0
+        total_images = 0
+
+        with pdfplumber.open(validated) as pdf:
+            for i, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                tables = page.extract_tables()
+                images = page.images
+                char_count = len(text)
+                total_chars += char_count
+                total_tables += len(tables)
+                total_images += len(images)
+
+                # 推断页面类型
+                if char_count < 50 and len(images) > 0:
+                    page_type = "image"
+                elif len(tables) > 0:
+                    page_type = "table"
+                elif char_count > 1000:
+                    page_type = "text-heavy"
+                else:
+                    page_type = "text"
+
+                page_analyses.append(
+                    {
+                        "page": i + 1,
+                        "type": page_type,
+                        "char_count": char_count,
+                        "table_count": len(tables),
+                        "image_count": len(images),
+                        "width": float(page.width),
+                        "height": float(page.height),
+                    }
+                )
+
+        result["total_chars"] = total_chars
+        result["total_tables"] = total_tables
+        result["total_images"] = total_images
+        result["avg_chars_per_page"] = total_chars // max(len(page_analyses), 1)
+        result["pages"] = page_analyses
+
+    return result
 
 
 def pdf_merge(files: list[str], output: str) -> dict[str, Any]:
@@ -230,31 +279,32 @@ def pdf_ocr_text(
     lang: str = "chi_sim+eng",
     output_format: str = "text",
 ) -> dict[str, Any]:
-    """OCR 文本识别（扫描件/图片型 PDF）。需要系统安装 tesseract。"""
-    try:
-        import pytesseract  # noqa: F401
-    except ImportError:
-        raise ToolError(
-            "OCR 功能需要安装 pytesseract 和 tesseract。请运行: pip install pytesseract"
-        ) from None
+    """OCR 文本识别（扫描件/图片型 PDF）。使用 RapidOCR 引擎。"""
+    from rapidocr_onnxruntime import RapidOCR
 
     validated = _validate_pdf(filename)
     pages_text: list[dict[str, Any]] = []
+    ocr = RapidOCR()
     with pdfplumber.open(validated) as pdf:
         start, end = _resolve_range(page_range, len(pdf.pages))
         for i in range(start, end):
             page = pdf.pages[i]
             im = page.to_image(resolution=300)
-            import pytesseract
-            from PIL import Image
 
-            img = Image.open(io.BytesIO(im.original.data))
-            text = pytesseract.image_to_string(img, lang=lang)
+            import os
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp_path = tmp.name
+            im.save(tmp_path)
+            result, _ = ocr(tmp_path)
+            os.unlink(tmp_path)
+            text = "\n".join([item[1] for item in result]) if result else ""
             pages_text.append({"page": i + 1, "text": text.strip()})
     return {"filename": filename, "lang": lang, "pages": pages_text}
 
 
-# ==================== 5.4.3 内容写入（5 个） ====================
+# ==================== 5.4.3 内容写入（4 个） ====================
 
 
 def pdf_add_text(
@@ -373,9 +423,9 @@ def pdf_add_annotation(
     y: float = 72,
     output: str | None = None,
 ) -> dict[str, Any]:
-    """添加注释（annotation_type: highlight/text/link）。"""
+    """添加注释或书签（annotation_type: highlight/text/link/bookmark）。"""
     InputValidator.validate_choice(
-        annotation_type, ["highlight", "text", "link"], "annotation_type"
+        annotation_type, ["highlight", "text", "link", "bookmark"], "annotation_type"
     )
     validated = _validate_pdf(filename)
     reader = PdfReader(validated)
@@ -383,125 +433,67 @@ def pdf_add_annotation(
         raise ToolError(f"页面索引超出范围: {page_idx}")
 
     writer = PdfWriter()
-    for i, page in enumerate(reader.pages):
-        if i == page_idx:
-            from pypdf.annotations import Text
+    if annotation_type == "bookmark":
+        for page in reader.pages:
+            writer.add_page(page)
+        writer.add_outline_item(content, page_idx)
+    else:
+        for i, page in enumerate(reader.pages):
+            if i == page_idx:
+                from pypdf.annotations import Text
 
-            annot = Text(text=content)
-            annot.rect = (x, y, x + 100, y + 20)
-            writer.add_page(page)
-            writer.add_annotation(page, annot)
-        else:
-            writer.add_page(page)
+                annot = Text(text=content)
+                annot.rect = (x, y, x + 100, y + 20)
+                writer.add_page(page)
+                writer.add_annotation(page, annot)
+            else:
+                writer.add_page(page)
 
     out = output or validated
     _save_pdf(writer, out)
+    if annotation_type == "bookmark":
+        return {
+            "filename": out,
+            "page_idx": page_idx,
+            "annotation_type": "bookmark",
+            "title": content,
+        }
     return {"filename": out, "page_idx": page_idx, "annotation_type": annotation_type}
 
 
-def pdf_add_bookmark(
-    filename: str, title: str, page_idx: int, output: str | None = None
+# ==================== 5.4.4 安全（1 个） ====================
+
+
+def pdf_manage_security(
+    filename: str,
+    action: str,
+    password: str,
+    permissions: list[str] | None = None,
+    output: str | None = None,
 ) -> dict[str, Any]:
-    """添加书签。"""
+    """管理 PDF 安全（加密/解密）。action: encrypt/decrypt。"""
+    InputValidator.validate_choice(action, ["encrypt", "decrypt"], "action")
     validated = _validate_pdf(filename)
     reader = PdfReader(validated)
-    if page_idx < 0 or page_idx >= len(reader.pages):
-        raise ToolError(f"页面索引超出范围: {page_idx}")
 
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-    writer.add_outline_item(title, page_idx)
+    if action == "encrypt":
+        writer = PdfWriter()
+        for page in reader.pages:
+            writer.add_page(page)
+        writer.encrypt(password)
+        out = output or validated
+        _save_pdf(writer, out)
+        return {"filename": out, "action": "encrypt", "encrypted": True}
 
-    out = output or validated
-    _save_pdf(writer, out)
-    return {"filename": out, "title": title, "page_idx": page_idx}
-
-
-# ==================== 5.4.4 安全与分析（3 个） ====================
-
-
-def pdf_encrypt(
-    filename: str, password: str, permissions: list[str] | None = None, output: str | None = None
-) -> dict[str, Any]:
-    """加密 PDF。"""
-    validated = _validate_pdf(filename)
-    reader = PdfReader(validated)
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-
-    writer.encrypt(password)
-    out = output or validated
-    _save_pdf(writer, out)
-    return {"filename": out, "encrypted": True}
-
-
-def pdf_decrypt(filename: str, password: str, output: str | None = None) -> dict[str, Any]:
-    """解密 PDF。"""
-    validated = _validate_pdf(filename)
-    reader = PdfReader(validated)
+    # action == "decrypt"
     if reader.is_encrypted and not reader.decrypt(password):
         raise ToolError("密码错误，解密失败")
-
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
-
     out = output or validated
     _save_pdf(writer, out)
-    return {"filename": out, "decrypted": True}
-
-
-def pdf_analyze_structure(filename: str) -> dict[str, Any]:
-    """分析结构（页面类型、文本密度、表格分布）。"""
-    validated = _validate_pdf(filename)
-    page_analyses: list[dict[str, Any]] = []
-    total_chars = 0
-    total_tables = 0
-    total_images = 0
-
-    with pdfplumber.open(validated) as pdf:
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text() or ""
-            tables = page.extract_tables()
-            images = page.images
-            char_count = len(text)
-            total_chars += char_count
-            total_tables += len(tables)
-            total_images += len(images)
-
-            # 推断页面类型
-            if char_count < 50 and len(images) > 0:
-                page_type = "image"
-            elif len(tables) > 0:
-                page_type = "table"
-            elif char_count > 1000:
-                page_type = "text-heavy"
-            else:
-                page_type = "text"
-
-            page_analyses.append(
-                {
-                    "page": i + 1,
-                    "type": page_type,
-                    "char_count": char_count,
-                    "table_count": len(tables),
-                    "image_count": len(images),
-                    "width": float(page.width),
-                    "height": float(page.height),
-                }
-            )
-
-    return {
-        "filename": filename,
-        "page_count": len(page_analyses),
-        "total_chars": total_chars,
-        "total_tables": total_tables,
-        "total_images": total_images,
-        "avg_chars_per_page": total_chars // max(len(page_analyses), 1),
-        "pages": page_analyses,
-    }
+    return {"filename": out, "action": "decrypt", "decrypted": True}
 
 
 # ==================== 5.4.5 模板工具（2 个） ====================
