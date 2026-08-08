@@ -392,8 +392,7 @@ timeverse-office-doc-mcp/
       "args": ["timeverse-office-doc-mcp"],
       "env": {
         "OFFICE_ALLOWED_DIRS": "/path/to/your/documents",
-        "OFFICE_WORKSPACE": "/path/to/workspace",
-        "OFFICE_OUTPUT": "/path/to/output",
+        "OFFICE_BASE_DIR": "/path/to/project/root",
         "OFFICE_TEMPLATES": "/path/to/templates"
       }
     }
@@ -418,8 +417,7 @@ pip install timeverse-office-doc-mcp
       "command": "timeverse-office-doc-mcp",
       "env": {
         "OFFICE_ALLOWED_DIRS": "/path/to/your/documents",
-        "OFFICE_WORKSPACE": "/path/to/workspace",
-        "OFFICE_OUTPUT": "/path/to/output",
+        "OFFICE_BASE_DIR": "/path/to/project/root",
         "OFFICE_TEMPLATES": "/path/to/templates"
       }
     }
