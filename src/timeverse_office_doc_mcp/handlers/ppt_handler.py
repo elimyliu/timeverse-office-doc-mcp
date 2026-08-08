@@ -27,7 +27,7 @@ from ..common.file_lock import file_lock_mgr
 from ..common.path_guard import path_guard
 from ..common.session import session_manager
 from ..common.template_mgr import template_manager
-from ..common.template_utils import fill_ppt_variables
+from ..common.template_utils import fill_ppt_slide_variables, fill_ppt_variables
 from ..common.validator import InputValidator
 
 logger = logging.getLogger("timeverse_office_doc_mcp.ppt")
@@ -411,6 +411,37 @@ def ppt_manage_slide(
         "source_slide_idx": slide_idx,
         "new_slide_idx": new_slide_idx,
         "slide_count": len(prs.slides),
+    }
+
+
+def ppt_fill_variables(
+    filename: str,
+    variables: dict[str, Any] | None = None,
+    slide_idx: int | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """填充演示文稿中的 {{占位符}} 变量。
+
+    用途：模板创建后可随时按页补充变量（如复制章节页后填充不同内容）。
+    slide_idx 提供时仅填充该页，否则填充全部页面。
+    """
+    variables = variables or {}
+    prs = _get_presentation(filename, session_id)
+    if slide_idx is not None:
+        _get_slide(prs, slide_idx)
+        slides = [prs.slides[slide_idx]]
+    else:
+        slides = list(prs.slides)
+
+    replaced = 0
+    for slide in slides:
+        replaced += fill_ppt_slide_variables(slide, variables)
+    _save_presentation(prs, filename, session_id)
+    return {
+        "filename": filename,
+        "slide_idx": slide_idx,
+        "slide_count": len(prs.slides),
+        "variables_replaced": replaced,
     }
 
 

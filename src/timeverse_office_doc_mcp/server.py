@@ -688,6 +688,20 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     # ==================== 5.3.2 内容编辑 ====================
     Tool(
+        name="ppt_fill_variables",
+        description="填充演示文稿中的 {{占位符}} 变量（slide_idx 提供时仅填充该页，否则填充全部页面；用于复制模板页后补充不同内容）",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "filename": _str_param("演示文稿文件路径"),
+                "variables": _obj_param("模板变量（键值对，用于填充 {{placeholder}}）", {}),
+                "slide_idx": _int_param("幻灯片索引（0-based，可选；不传则填充全部页面）"),
+                "session_id": SESSION_ID_PARAM,
+            },
+            "required": ["filename"],
+        },
+    ),
+    Tool(
         name="ppt_add_text",
         description="添加文本框（单位为英寸）",
         input_schema={
@@ -1125,13 +1139,18 @@ TOOL_DEFINITIONS: list[Tool] = [
     # ==================== 5.5.2 模板应用 ====================
     Tool(
         name="doc_apply_template",
-        description="从模板创建文档并自动填充变量（支持所有格式）",
+        description="从模板创建文档并自动填充变量（支持所有格式；PPT 模板可用 sections 按章节扩展页数）",
         input_schema={
             "type": "object",
             "properties": {
                 "template_name": _str_param("模板名称"),
                 "output_path": _str_param("输出文件路径"),
                 "variables": _obj_param("模板变量（键值对，用于填充 {{placeholder}}）", {}),
+                "sections": _array_param(
+                    "PPT 章节列表（可选，仅 ppt 模板生效；每项含 section_no/section_title/slide_title/point1-4，"
+                    "将模板中的章节页/内容页原型复制为每章节一组）",
+                    {"type": "object"},
+                ),
             },
             "required": ["template_name", "output_path"],
         },
@@ -1230,6 +1249,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     "ppt_get_overview": ppt_handler.ppt_get_overview,
     "ppt_add_slide": ppt_handler.ppt_add_slide,
     "ppt_manage_slide": ppt_handler.ppt_manage_slide,
+    "ppt_fill_variables": ppt_handler.ppt_fill_variables,
     "ppt_add_text": ppt_handler.ppt_add_text,
     "ppt_add_image": ppt_handler.ppt_add_image,
     "ppt_add_table": ppt_handler.ppt_add_table,

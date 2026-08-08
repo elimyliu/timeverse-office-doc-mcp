@@ -4,7 +4,7 @@
 [![CI](https://github.com/timeverse/timeverse-office-doc-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/timeverse/timeverse-office-doc-mcp/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-面向 **Word / Excel / PowerPoint / PDF** 四大格式的全场景读写与分析 MCP Server。提供 **73 个工具**，覆盖文档创建、内容编辑、格式化、数据分析、模板管理、Session 内存编辑等全链路能力，让 AI 模型直接操控办公文档。
+面向 **Word / Excel / PowerPoint / PDF** 四大格式的全场景读写与分析 MCP Server。提供 **74 个工具**，覆盖文档创建、内容编辑、格式化、数据分析、模板管理、Session 内存编辑等全链路能力，让 AI 模型直接操控办公文档。
 
 ---
 
@@ -15,7 +15,7 @@
 - [详细的能力清单](#详细的能力清单)
   - [Word 工具集（19 个）](#word-工具集19-个)
   - [Excel 工具集（16 个）](#excel-工具集16-个)
-  - [PowerPoint 工具集（14 个）](#powerpoint-工具集14-个)
+  - [PowerPoint 工具集（15 个）](#powerpoint-工具集15-个)
   - [PDF 工具集（16 个）](#pdf-工具集16-个)
   - [跨格式工具集（8 个）](#跨格式工具集8-个)
 - [架构概览](#架构概览)
@@ -32,7 +32,7 @@
 
 ## 工具简介
 
-**timeverse-office-doc-mcp** 是一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的办公文档处理服务器。它将 Word、Excel、PowerPoint、PDF 四大主流办公格式的读写、编辑、分析能力封装为 73 个标准化工具，任何支持 MCP 的 AI 客户端都可以直接调用。
+**timeverse-office-doc-mcp** 是一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的办公文档处理服务器。它将 Word、Excel、PowerPoint、PDF 四大主流办公格式的读写、编辑、分析能力封装为 74 个标准化工具，任何支持 MCP 的 AI 客户端都可以直接调用。
 
 无论是让 AI 帮你生成一份格式规范的 Word 报告、处理 Excel 数据统计与排序、制作 PPT 演示文稿，还是对 PDF 进行合并拆分、加水印、提取表格——这个 MCP Server 都能让 AI 直接完成，无需人工切换软件。
 
@@ -42,9 +42,9 @@
 
 ## 核心特点和优势
 
-### 1. 四大格式全覆盖，73 个工具
+### 1. 四大格式全覆盖，74 个工具
 
-一个 Server 搞定 Word（19）、Excel（16）、PowerPoint（14）、PDF（16）以及跨格式模板与 Session 管理（8），无需为每种格式单独部署。
+一个 Server 搞定 Word（19）、Excel（16）、PowerPoint（15）、PDF（16）以及跨格式模板与 Session 管理（8），无需为每种格式单独部署。
 
 ### 2. Session 内存编辑模式
 
@@ -58,6 +58,8 @@
 ### 3. 模板引擎与变量填充
 
 统一的 `{{variable}}` 占位符语法，跨 Word / Excel / PPT / PDF 四种格式通用。注册模板时自动扫描提取占位符并推断类型（text / date / number / table / image 等），AI 只需提供变量值即可批量生成文档。
+
+**多章节扩页（PPT）**：`doc_apply_template` 支持 `sections` 参数，自动识别模板中的章节页/内容页原型并复制为每章节一组（封面/目录 + 章节×N + 结尾），一次调用即可生成完整演示文稿；`ppt_fill_variables` 支持对单页或全文档随时补充变量。占位符即使被 Word/PPT 拆分为多个 run 也能正确替换。
 
 ### 4. 路径沙箱安全机制
 
@@ -125,7 +127,7 @@
 |------|------|----------|----------|
 | `word_extract_tables` | 提取所有表格数据（JSON 或 CSV） | `filename` | `format`(默认 "json"), `session_id` |
 
-> `word_get_info(detailed=true)` 已合并原 `word_analyze_structure` 的结构分析能力；`word_extract_text` 已合并原 `word_get_text` 与 `word_get_outline`；分页符由 `word_add_paragraph(page_break=true)` 实现。
+> `word_get_info(detailed=true)` 输出文档结构分析（标题层级、样式分布）；`word_extract_text` 提取全文并支持大纲模式；分页符通过 `word_add_paragraph(page_break=true)` 插入。
 
 ---
 
@@ -167,11 +169,11 @@
 | `excel_analyze_data` | 数据统计分析（描述统计、频次分布等） | `filename`, `sheet` | `range_str`, `session_id` |
 | `excel_find_duplicates` | 查找重复数据 | `filename`, `sheet` | `columns`, `threshold`(默认 1), `session_id` |
 
-> 原 7 个工作表管理工具、8 个单元格/行列读写工具已分别合并为 `excel_manage_sheet` 与 `excel_read`/`excel_write`/`excel_modify_row`/`excel_modify_column`；`excel_get_info` 更名为 `excel_get_overview`；`excel_create_pivot_table` 已移除。
+> 工作表管理统一由 `excel_manage_sheet`（add / delete / rename / copy）完成；单元格与行列读写由 `excel_read`/`excel_write`/`excel_modify_row`/`excel_modify_column` 覆盖；工作簿信息通过 `excel_get_overview` 获取。
 
 ---
 
-### PowerPoint 工具集（14 个）
+### PowerPoint 工具集（15 个）
 
 #### 演示文稿管理（5 个）
 
@@ -183,7 +185,7 @@
 | `ppt_manage_slide` | 管理幻灯片（action: delete / move / copy） | `filename`, `action`, `slide_idx` | `new_idx`(move 时必填), `session_id` |
 | `ppt_apply_theme` | 应用主题配色（blue / green / orange / dark） | `filename`, `theme_name` | `session_id` |
 
-#### 内容编辑（7 个）
+#### 内容编辑（8 个）
 
 | 工具 | 描述 | 必需参数 | 可选参数 |
 |------|------|----------|----------|
@@ -194,6 +196,7 @@
 | `ppt_add_shape` | 添加形状（rectangle / oval / triangle 等） | `filename`, `slide_idx`, `shape_type` | `left`, `top`, `width`, `height`, `session_id` |
 | `ppt_set_background` | 设置幻灯片背景色 | `filename`, `slide_idx` | `color`, `session_id` |
 | `ppt_slide_notes` | 获取或设置演讲者备注（action: get / set） | `filename`, `slide_idx` | `action`(默认 "get"), `notes_text`, `session_id` |
+| `ppt_fill_variables` | 填充 {{占位符}} 变量（slide_idx 指定则仅填充该页，否则全文档；复制模板页后补充不同内容） | `filename` | `variables`, `slide_idx`, `session_id` |
 
 #### 分析工具（2 个）
 
@@ -202,7 +205,7 @@
 | `ppt_extract_text` | 提取所有幻灯片文本 | `filename` | `session_id` |
 | `ppt_get_structure` | 获取完整结构树（`analyze=true` 时附带结构分析：形状/布局分布） | `filename` | `analyze`(默认 false), `session_id` |
 
-> `ppt_get_info` 更名为 `ppt_get_overview`；幻灯片删除/移动/复制合并为 `ppt_manage_slide`；备注读写合并为 `ppt_slide_notes`；`ppt_get_structure(analyze=true)` 已合并原 `ppt_analyze_structure`。
+> 演示文稿信息通过 `ppt_get_overview` 获取；幻灯片删除/移动/复制由 `ppt_manage_slide` 完成；备注读写由 `ppt_slide_notes` 覆盖；`ppt_get_structure(analyze=true)` 输出结构分析（形状/布局分布）；占位符填充由 `ppt_fill_variables` 按页或全文档完成。
 
 ---
 
@@ -249,7 +252,7 @@
 | `pdf_create_from_template` | 从模板创建 PDF | `template_name` | `variables`, `output`(默认 "output.pdf") |
 | `pdf_fill_form` | 填充 AcroForm 表单字段 | `filename`, `fields` | `flatten`(默认 true), `output` |
 
-> 加密/解密合并为 `pdf_manage_security`；书签功能并入 `pdf_add_annotation(annotation_type="bookmark")`；`pdf_get_info(analyze=true)` 已合并原 `pdf_analyze_structure`；OCR 引擎由 tesseract 替换为 RapidOCR（无需系统级依赖）。
+> PDF 加密/解密由 `pdf_manage_security`（action: encrypt / decrypt）完成；书签通过 `pdf_add_annotation(annotation_type="bookmark")` 添加；`pdf_get_info(analyze=true)` 输出文档结构分析；OCR 使用 RapidOCR 引擎（无需系统级依赖）。
 
 ---
 
@@ -262,7 +265,7 @@
 | `doc_list_templates` | 列出所有模板 | - | `format` |
 | `doc_get_template_info` | 获取模板详情（含占位符列表） | `template_name` | - |
 | `doc_manage_template` | 模板注册与删除（action: register / delete） | `action`, `name` | `format`, `file_path`, `description`, `placeholders` |
-| `doc_apply_template` | 从模板创建文档并填充变量 | `template_name`, `output_path` | `variables` |
+| `doc_apply_template` | 从模板创建文档并填充变量（PPT 模板支持 `sections` 按章节扩展页数） | `template_name`, `output_path` | `variables`, `sections` |
 
 #### 占位符（1 个）
 
@@ -278,7 +281,7 @@
 | `doc_close_session` | 关闭 Session（`save=true` 时先保存；`output_path` 指定保存位置） | `session_id` | `save`(默认 false), `output_path` |
 | `doc_list_sessions` | 列出所有活跃 Session | - | - |
 
-> 模板注册/删除合并为 `doc_manage_template`；保存功能并入 `doc_close_session(save=true, output_path=...)`。
+> 模板注册/删除由 `doc_manage_template` 完成；Session 内容保存通过 `doc_close_session(save=true, output_path=...)` 落盘。
 
 ---
 
@@ -294,14 +297,14 @@
 │                     MCP Server (stdio)                    │
 │  ┌─────────────────────────────────────────────────────┐ │
 │  │              server.py — 工具注册与路由               │ │
-│  │   TOOL_DEFINITIONS (73 个工具 Schema)                │ │
+│  │   TOOL_DEFINITIONS (74 个工具 Schema)                │ │
 │  │   TOOL_HANDLERS (工具名 → handler 映射)              │ │
 │  └──────────────────────────┬──────────────────────────┘ │
 │                             │                             │
 │  ┌───────────┬───────────┬──┴────────┬──────────┬──────┐ │
 │  │  Word     │  Excel    │  PPT      │  PDF     │ Doc  │ │
 │  │  Handler  │  Handler  │  Handler  │  Handler │Handler│ │
-│  │  (18)     │  (15)     │  (14)     │  (16)    │ (8)  │ │
+│  │  (18)     │  (15)     │  (15)     │  (16)    │ (8)  │ │
 │  └─────┬─────└─────┬─────└─────┬─────└─────┬────└──┬───┘ │
 │        │           │           │           │       │     │
 │  ┌─────▼───────────▼───────────▼───────────▼───────▼───┐ │
@@ -335,12 +338,12 @@
 timeverse-office-doc-mcp/
 ├── src/timeverse_office_doc_mcp/
 │   ├── __init__.py              # 版本号
-│   ├── server.py                # MCP Server 入口（73 个工具定义 + 路由）
+│   ├── server.py                # MCP Server 入口（74 个工具定义 + 路由）
 │   ├── config.py                # 配置管理（ServerConfig + SecurityConfig）
 │   ├── handlers/
 │   │   ├── word_handler.py      # Word 19 个工具
 │   │   ├── excel_handler.py     # Excel 16 个工具
-│   │   ├── ppt_handler.py       # PowerPoint 14 个工具
+│   │   ├── ppt_handler.py       # PowerPoint 15 个工具
 │   │   ├── pdf_handler.py       # PDF 16 个工具
 │   │   └── doc_handler.py       # 跨格式 8 个工具（模板 + Session）
 │   └── common/
@@ -614,6 +617,52 @@ ppt_add_chart(
     title="季度销售趋势"
 )
 ppt_apply_theme(filename="产品发布.pptx", theme_name="blue")
+```
+
+### 示例 7：模板多章节生成 PPT 演示文稿
+
+对 AI 说：
+
+> "用'银杉新经-商务模板'模板做一份公司介绍 PPT，封面标题'公司介绍'，目录四个章节：公司概况、主营业务、核心优势、联系我们，并给出每个章节的内容要点。"
+
+AI 只需调用一次 `doc_apply_template`，通过 `sections` 自动将模板中的章节页/内容页原型复制为每章节一组（封面/目录 + 章节页×4 + 内容页×4 + 结尾页，共 11 页）：
+
+```
+doc_apply_template(
+    template_name="银杉新经-商务模板",
+    output_path="四川银杉新经科技有限公司-公司介绍.pptx",
+    variables={
+        "title": "公司介绍", "subtitle": "四川银杉新经科技有限公司",
+        "date": "2026-08-08",
+        "item1": "公司概况", "item2": "主营业务", "item3": "核心优势", "item4": "联系我们",
+        "contact": "四川天府新区华阳街道华府大道一段1号1单元17层11号"
+    },
+    sections=[
+        {"section_no": "01", "section_title": "公司概况", "slide_title": "公司概况",
+         "point1": "成立于 2019 年 4 月", "point2": "注册资本 500 万元",
+         "point3": "法定代表人刘欢", "point4": "统一社会信用代码 91510100MA66YJJB15"},
+        {"section_no": "02", "section_title": "主营业务", "slide_title": "主营业务",
+         "point1": "计算机软硬件开发", "point2": "数据处理及存储",
+         "point3": "信息系统集成", "point4": "信息技术咨询"},
+        {"section_no": "03", "section_title": "核心优势", "slide_title": "核心优势",
+         "point1": "信用良好，自身/关联风险均为 0", "point2": "全链条 IT 服务能力",
+         "point3": "小微轻量主体，决策灵活", "point4": "业务范围覆盖多元方向"},
+        {"section_no": "04", "section_title": "联系我们", "slide_title": "联系我们",
+         "point1": "公司全称：四川银杉新经科技有限公司", "point2": "注册地址：四川天府新区",
+         "point3": "统一社会信用代码：91510100MA66YJJB15", "point4": "信息来源：国家企业信用信息公示系统"},
+    ]
+)
+```
+
+生成后如需微调某一页内容，可复制页面后用 `ppt_fill_variables` 按页补充变量：
+
+```
+ppt_manage_slide(filename="四川银杉新经科技有限公司-公司介绍.pptx", action="copy", slide_idx=7)
+ppt_fill_variables(
+    filename="四川银杉新经科技有限公司-公司介绍.pptx",
+    slide_idx=7,
+    variables={"slide_title": "新增章节", "point1": "要点一", "point2": "要点二", "point3": "要点三", "point4": "要点四"}
+)
 ```
 
 ---

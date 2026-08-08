@@ -29,23 +29,14 @@ def fill_word_variables(doc: Any, variables: dict[str, Any]) -> int:
     count = 0
     for paragraph in doc.paragraphs:
         if "{{" in paragraph.text:
-            for run in paragraph.runs:
-                if "{{" in run.text:
-                    new_text = replace_placeholders(run.text, variables)
-                    if new_text != run.text:
-                        run.text = new_text
-                        count += 1
+            count += _replace_in_runs(list(paragraph.runs), variables)
     # 表格单元格
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        if "{{" in run.text:
-                            new_text = replace_placeholders(run.text, variables)
-                            if new_text != run.text:
-                                run.text = new_text
-                                count += 1
+                    if "{{" in paragraph.text:
+                        count += _replace_in_runs(list(paragraph.runs), variables)
     return count
 
 
@@ -67,13 +58,20 @@ def fill_ppt_variables(prs: Any, variables: dict[str, Any]) -> int:
     """填充 PPT 演示文稿（python-pptx Presentation）中的占位符，返回替换数量。"""
     count = 0
     for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                count += _replace_in_text_frame(shape.text_frame, variables)
-            if shape.has_table:
-                for row in shape.table.rows:
-                    for cell in row.cells:
-                        count += _replace_in_text_frame(cell.text_frame, variables)
+        count += fill_ppt_slide_variables(slide, variables)
+    return count
+
+
+def fill_ppt_slide_variables(slide: Any, variables: dict[str, Any]) -> int:
+    """填充单张幻灯片（python-pptx Slide）中的占位符，返回替换数量。"""
+    count = 0
+    for shape in slide.shapes:
+        if shape.has_text_frame:
+            count += _replace_in_text_frame(shape.text_frame, variables)
+        if shape.has_table:
+            for row in shape.table.rows:
+                for cell in row.cells:
+                    count += _replace_in_text_frame(cell.text_frame, variables)
     return count
 
 
@@ -81,10 +79,36 @@ def _replace_in_text_frame(text_frame: Any, variables: dict[str, Any]) -> int:
     """在文本框中替换占位符，返回替换次数。"""
     count = 0
     for paragraph in text_frame.paragraphs:
-        for run in paragraph.runs:
-            if "{{" in run.text:
-                new_text = replace_placeholders(run.text, variables)
-                if new_text != run.text:
-                    run.text = new_text
-                    count += 1
+        runs = list(paragraph.runs)
+        if runs and "{{" in "".join(run.text for run in runs):
+            count += _replace_in_runs(runs, variables)
+    return count
+
+
+def _replace_in_runs(runs: list[Any], variables: dict[str, Any]) -> int:
+    """在一个段落/文本行的 run 序列中替换占位符。
+
+    优先在单个 run 内替换以保留原有格式；
+    若占位符被拆分到多个 run（如 {{ti | tle}}），则重组到首个 run 并清空其余 run。
+    """
+    if not runs:
+        return 0
+
+    count = 0
+    for run in runs:
+        if "{{" in run.text:
+            new_text = replace_placeholders(run.text, variables)
+            if new_text != run.text:
+                run.text = new_text
+                count += 1
+
+    # 逐 run 替换后仍有未闭合占位符，说明被拆分为多个 run，进行段落级重组
+    joined = "".join(run.text for run in runs)
+    if "{{" in joined:
+        replaced = replace_placeholders(joined, variables)
+        if replaced != joined:
+            runs[0].text = replaced
+            for run in runs[1:]:
+                run.text = ""
+            count += 1
     return count

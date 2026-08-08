@@ -84,6 +84,36 @@ class TestPptAddTable:
         assert result["cols"] == 2
 
 
+class TestPptFillVariables:
+    def test_fill_whole_document(self, pptx_path: str) -> None:
+        ppt_handler.ppt_create_presentation(pptx_path)
+        ppt_handler.ppt_add_slide(pptx_path, layout=6)
+        ppt_handler.ppt_add_text(pptx_path, 0, text="标题：{{title}}")
+        ppt_handler.ppt_add_slide(pptx_path, layout=6)
+        ppt_handler.ppt_add_text(pptx_path, 1, text="内容：{{content}}")
+        result = ppt_handler.ppt_fill_variables(
+            pptx_path, {"title": "T1", "content": "C1"}
+        )
+        assert result["variables_replaced"] == 2
+        prs = Presentation(pptx_path)
+        assert prs.slides[0].shapes[0].text_frame.text == "标题：T1"
+        assert prs.slides[1].shapes[0].text_frame.text == "内容：C1"
+
+    def test_fill_single_slide(self, pptx_path: str) -> None:
+        ppt_handler.ppt_create_presentation(pptx_path)
+        ppt_handler.ppt_add_slide(pptx_path, layout=6)
+        ppt_handler.ppt_add_text(pptx_path, 0, text="{{a}}")
+        ppt_handler.ppt_add_slide(pptx_path, layout=6)
+        ppt_handler.ppt_add_text(pptx_path, 1, text="{{b}}")
+        result = ppt_handler.ppt_fill_variables(
+            pptx_path, {"a": "A", "b": "B"}, slide_idx=0
+        )
+        assert result["variables_replaced"] == 1
+        prs = Presentation(pptx_path)
+        assert prs.slides[0].shapes[0].text_frame.text == "A"
+        assert prs.slides[1].shapes[0].text_frame.text == "{{b}}"
+
+
 class TestPptSetBackground:
     def test_set_background(self, pptx_path: str) -> None:
         ppt_handler.ppt_create_presentation(pptx_path)

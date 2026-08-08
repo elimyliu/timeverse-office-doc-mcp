@@ -6,9 +6,34 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from openpyxl import Workbook, load_workbook
+from pptx import Presentation
+from pptx.util import Inches
 
 from timeverse_office_doc_mcp.common.error_handler import ToolError
 from timeverse_office_doc_mcp.handlers import doc_handler, word_handler
+
+
+def _build_ppt_section_template(path: Path) -> None:
+    """构造 5 页结构模板：封面/目录/章节页原型/内容页原型/结尾页。"""
+    prs = Presentation()
+    blank = prs.slide_layouts[6]
+
+    def add_textbox(slide, text: str) -> None:
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(2))
+        tb.text_frame.text = text
+
+    s = prs.slides.add_slide(blank)
+    add_textbox(s, "{{title}}")
+    s = prs.slides.add_slide(blank)
+    add_textbox(s, "{{item1}} / {{item2}} / {{item3}} / {{item4}}")
+    s = prs.slides.add_slide(blank)
+    add_textbox(s, "PART {{section_no}} {{section_title}}")
+    s = prs.slides.add_slide(blank)
+    add_textbox(s, "{{slide_title}}\n{{point1}}\n{{point2}}\n{{point3}}\n{{point4}}")
+    s = prs.slides.add_slide(blank)
+    add_textbox(s, "{{contact}}")
+    prs.save(str(path))
 
 
 @pytest.fixture
@@ -113,6 +138,208 @@ class TestDocApplyTemplate:
         assert "测试报告" in text
         assert "张三" in text
         assert "{{" not in text
+
+    def test_apply_ppt_template_returns_name(self, workspace: Path) -> None:
+        """doc_apply_template 对 PPT 模板应返回真实模板名（回归：曾硬编码为 'ppt'）。"""
+        tpl = str(workspace / "tpl.pptx")
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        tb.text_frame.text = "标题：{{title}}"
+        prs.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="ppt_tpl", format="ppt", file_path=tpl
+        )
+
+        output = str(workspace / "out.pptx")
+        result = doc_handler.doc_apply_template("ppt_tpl", output, {"title": "公司介绍"})
+        assert result["template"] == "ppt_tpl"
+
+        prs2 = Presentation(output)
+        text = prs2.slides[0].shapes[0].text_frame.text
+        assert "公司介绍" in text
+        assert "{{" not in text
+
+    def test_apply_excel_template_returns_name(self, workspace: Path) -> None:
+        """doc_apply_template 对 Excel 模板应返回真实模板名（回归：曾硬编码为 'excel'）。"""
+        tpl = str(workspace / "tpl.xlsx")
+        wb = Workbook()
+        wb.active["A1"] = "{{name}}"
+        wb.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="excel_tpl", format="excel", file_path=tpl
+        )
+
+        output = str(workspace / "out.xlsx")
+        result = doc_handler.doc_apply_template("excel_tpl", output, {"name": "银杉"})
+        assert result["template"] == "excel_tpl"
+
+        wb2 = load_workbook(output)
+        assert wb2.active["A1"].value == "银杉"
+
+    def test_apply_word_template_split_runs(self, workspace: Path) -> None:
+        """占位符被拆到多个 run 时应能替换（回归：原先只按单个 run 替换）。"""
+        tpl = str(workspace / "split.docx")
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("报告：{{ti")
+        p.add_run("tle}}")
+        p.add_run(" 完成")
+        doc.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="split_tpl", format="word", file_path=tpl
+        )
+
+        output = str(workspace / "split_out.docx")
+        result = doc_handler.doc_apply_template("split_tpl", output, {"title": "年度总结"})
+        assert result["variables_replaced"] >= 1
+
+        doc2 = Document(output)
+        text = "\n".join(p.text for p in doc2.paragraphs)
+        assert "报告：年度总结 完成" in text
+        assert "{{" not in text
+
+    def test_apply_ppt_template_split_runs(self, workspace: Path) -> None:
+        """PPT 占位符跨 run 时应能替换。"""
+        tpl = str(workspace / "split.pptx")
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        tf = tb.text_frame
+        tf.text = "标题：{{ti"
+        tf.paragraphs[0].add_run().text = "tle}}"
+        prs.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="split_ppt", format="ppt", file_path=tpl
+        )
+
+        output = str(workspace / "split_ppt_out.pptx")
+        result = doc_handler.doc_apply_template("split_ppt", output, {"title": "公司介绍"})
+        assert result["variables_replaced"] >= 1
+
+        prs2 = Presentation(output)
+        text = prs2.slides[0].shapes[0].text_frame.text
+        assert "标题：公司介绍" in text
+        assert "{{" not in text
+
+    def test_apply_ppt_template_sections(self, workspace: Path) -> None:
+        """doc_apply_template 通过 sections 按章节扩展 PPT 页数。"""
+        tpl = workspace / "sec_tpl.pptx"
+        _build_ppt_section_template(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="sec_tpl", format="ppt", file_path=str(tpl)
+        )
+
+        output = str(workspace / "sec_out.pptx")
+        result = doc_handler.doc_apply_template(
+            "sec_tpl",
+            output,
+            variables={"title": "公司介绍", "item1": "概况", "item2": "业务", "item3": "优势", "item4": "联系", "contact": "联系"},
+            sections=[
+                {
+                    "section_no": "01", "section_title": "公司概况", "slide_title": "公司概况",
+                    "point1": "成立于2019年", "point2": "注册资本500万", "point3": "法人刘欢", "point4": "天府新区",
+                },
+                {
+                    "section_no": "02", "section_title": "主营业务", "slide_title": "主营业务",
+                    "point1": "软硬件开发", "point2": "数据处理", "point3": "系统集成", "point4": "咨询",
+                },
+            ],
+        )
+        # 封面 + 目录 + 2 章节 x (章节页+内容页) + 结尾 = 7 页
+        assert result["slide_count"] == 7
+        assert result["template"] == "sec_tpl"
+
+        prs = Presentation(output)
+        texts = [prs.slides[i].shapes[0].text_frame.text for i in range(len(prs.slides))]
+        assert texts[0] == "公司介绍"
+        assert texts[1] == "概况 / 业务 / 优势 / 联系"
+        assert texts[2] == "PART 01 公司概况"
+        assert "成立于2019年" in texts[3]
+        assert "法人刘欢" in texts[3]
+        assert texts[4] == "PART 02 主营业务"
+        assert "数据处理" in texts[5]
+        assert texts[6] == "联系"
+        assert not any("{{" in t for t in texts)
+
+    def test_apply_ppt_template_page_numbers(self, workspace: Path) -> None:
+        """扩页后应重写克隆页的静态页码，保证最终页码连续。"""
+        tpl = str(workspace / "pagenum_tpl.pptx")
+        prs = Presentation()
+        blank = prs.slide_layouts[6]
+
+        def add_text(slide, text: str, left=1.0, top=1.0) -> None:
+            tb = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(6), Inches(1))
+            tb.text_frame.text = text
+
+        def add_footer(slide, text: str) -> None:
+            # 底部区域页码（top=7.0in，幻灯片高 7.5in）
+            add_text(slide, text, left=11.5, top=7.0)
+
+        s = prs.slides.add_slide(blank)
+        add_text(s, "{{title}}")  # 封面：无页码
+        s = prs.slides.add_slide(blank)
+        add_text(s, "{{item1}} / {{item2}}")
+        add_footer(s, "02")  # 目录页
+        s = prs.slides.add_slide(blank)
+        add_text(s, "PART {{section_no}} {{section_title}}")
+        add_footer(s, "03")  # 章节页原型
+        s = prs.slides.add_slide(blank)
+        add_text(s, "{{slide_title}}\n{{point1}}\n{{point2}}")
+        add_footer(s, "04")  # 内容页原型
+        s = prs.slides.add_slide(blank)
+        add_text(s, "{{contact}}")  # 结尾：无页码
+        prs.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="pagenum_tpl", format="ppt", file_path=tpl
+        )
+
+        output = str(workspace / "pagenum_out.pptx")
+        doc_handler.doc_apply_template(
+            "pagenum_tpl",
+            output,
+            variables={"title": "T", "item1": "A", "item2": "B", "contact": "C"},
+            sections=[
+                {"section_no": "01", "section_title": "第一章", "slide_title": "第一章", "point1": "p1", "point2": "p2"},
+                {"section_no": "02", "section_title": "第二章", "slide_title": "第二章", "point1": "p1", "point2": "p2"},
+            ],
+        )
+
+        prs2 = Presentation(output)
+        assert len(prs2.slides) == 7
+        footers = []
+        for i in range(len(prs2.slides)):
+            nums = [
+                sh.text_frame.text.strip()
+                for sh in prs2.slides[i].shapes
+                if sh.has_text_frame and sh.text_frame.text.strip().isdigit()
+            ]
+            footers.append(nums[0] if nums else None)
+        # 封面/结尾无页码，其余按最终页序 02..06
+        assert footers == [None, "02", "03", "04", "05", "06", None]
+
+    def test_apply_ppt_template_sections_without_proto(self, workspace: Path) -> None:
+        """模板无章节/内容原型页时，sections 退化为仅做全局填充。"""
+        tpl = str(workspace / "plain_tpl.pptx")
+        prs = Presentation()
+        s = prs.slides.add_slide(prs.slide_layouts[6])
+        tb = s.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        tb.text_frame.text = "{{name}}"
+        prs.save(tpl)
+        doc_handler.doc_manage_template(
+            action="register", name="plain_tpl", format="ppt", file_path=tpl
+        )
+
+        output = str(workspace / "plain_out.pptx")
+        result = doc_handler.doc_apply_template(
+            "plain_tpl",
+            output,
+            variables={"name": "银杉"},
+            sections=[{"section_no": "01", "section_title": "章节"}],
+        )
+        assert result["slide_count"] == 1
+        prs2 = Presentation(output)
+        assert prs2.slides[0].shapes[0].text_frame.text == "银杉"
 
 
 class TestDocExtractPlaceholders:
