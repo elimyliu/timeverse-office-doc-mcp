@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "timeverse-office-doc-mcp"
+version = "0.1.0"
+description = "面向 Word / Excel / PowerPoint / PDF 四大格式的全场景读写与分析 MCP Server"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "TimeVerse" },
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "office",
+    "word",
+    "excel",
+    "powerpoint",
+    "pdf",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "pandas>=2.0.0",
+    "python-pptx>=0.6.23",
+    "pdfplumber>=0.11.0",
+    "pypdf>=4.0.0",
+    "reportlab>=4.0.0",
+    "filelock>=3.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+timeverse-office-doc-mcp = "timeverse_office_doc_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/timeverse/timeverse-office-doc-mcp"
+Issues = "https://github.com/timeverse/timeverse-office-doc-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/timeverse_office_doc_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/timeverse_office_doc_mcp",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disable_error_code = ["untyped-decorator", "no-untyped-def"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
