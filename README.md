@@ -13,7 +13,7 @@
 - [工具简介](#工具简介)
 - [核心特点和优势](#核心特点和优势)
 - [详细的能力清单](#详细的能力清单)
-  - [Word 工具集（18 个）](#word-工具集18-个)
+  - [Word 工具集（19 个）](#word-工具集19-个)
   - [Excel 工具集（15 个）](#excel-工具集15-个)
   - [PowerPoint 工具集（14 个）](#powerpoint-工具集14-个)
   - [PDF 工具集（16 个）](#pdf-工具集16-个)
@@ -83,7 +83,7 @@
 
 ## 详细的能力清单
 
-### Word 工具集（18 个）
+### Word 工具集（19 个）
 
 #### 文档管理（5 个）
 
@@ -95,12 +95,13 @@
 | `word_list_documents` | 列出目录内所有 Word 文档 | `directory` | - |
 | `word_copy_document` | 复制文档 | `source`, `destination` | - |
 
-#### 内容编辑（7 个）
+#### 内容编辑（8 个）
 
 | 工具 | 描述 | 必需参数 | 可选参数 |
 |------|------|----------|----------|
-| `word_add_heading` | 添加标题（Heading 样式，level=0 为 Title） | `filename`, `text` | `level`(默认 1), `session_id` |
-| `word_add_paragraph` | 添加段落（支持样式、字号、加粗；`page_break=true` 时同时插入分页符） | `filename` | `text`, `style`, `font_size`, `bold`, `page_break`(默认 false), `session_id` |
+| `word_add_heading` | 添加标题（Heading 样式，level=0 为 Title；支持对齐、字号覆盖与段前/段后间距） | `filename`, `text` | `level`(默认 1), `align`, `font_size`, `space_before`, `space_after`, `session_id` |
+| `word_add_paragraph` | 添加段落（支持样式、字号、加粗、对齐与段前/段后间距；`page_break=true` 时同时插入分页符） | `filename` | `text`, `style`, `font_size`, `bold`, `align`, `space_before`, `space_after`, `page_break`(默认 false), `session_id` |
+| `word_add_cover` | 添加居中版式封面（标题/副标题/作者/日期/组织），完成后自动分页 | `filename`, `title` | `subtitle`, `author`, `date`, `org`, `session_id` |
 | `word_add_table` | 添加表格（支持数据填充与表头样式） | `filename`, `rows`, `cols` | `data`, `has_header`(默认 true), `session_id` |
 | `word_add_image` | 插入图片 | `filename`, `image_path` | `width`(英寸), `session_id` |
 | `word_add_list` | 添加列表（项目符号或编号） | `filename`, `items` | `list_style`(默认 "List Bullet"), `session_id` |
@@ -332,10 +333,10 @@
 timeverse-office-doc-mcp/
 ├── src/timeverse_office_doc_mcp/
 │   ├── __init__.py              # 版本号
-│   ├── server.py                # MCP Server 入口（71 个工具定义 + 路由）
+│   ├── server.py                # MCP Server 入口（72 个工具定义 + 路由）
 │   ├── config.py                # 配置管理（ServerConfig + SecurityConfig）
 │   ├── handlers/
-│   │   ├── word_handler.py      # Word 18 个工具
+│   │   ├── word_handler.py      # Word 19 个工具
 │   │   ├── excel_handler.py     # Excel 15 个工具
 │   │   ├── ppt_handler.py       # PowerPoint 14 个工具
 │   │   ├── pdf_handler.py       # PDF 16 个工具
@@ -523,6 +524,12 @@ word_create_document(filename="2026年度项目总结.docx", title="2026 年度�
 word_add_heading(filename="2026年度项目总结.docx", text="项目概述", level=1)
 word_add_paragraph(filename="2026年度项目总结.docx", text="本项目旨在...")
 word_add_table(filename="2026年度项目总结.docx", rows=3, cols=2, data=[["指标","数值"],["完成度","95%"],["预算执行","88%"]], has_header=true)
+```
+
+创建带封面（居中版式，自动分页）的文档：
+
+```
+word_add_cover(filename="2026年度项目总结.docx", title="2026年度项目总结", subtitle="技术部年度汇报", author="张三", date="2026-08-08", org="某科技有限公司")
 ```
 
 ### 示例 2：Session 模式连续编辑

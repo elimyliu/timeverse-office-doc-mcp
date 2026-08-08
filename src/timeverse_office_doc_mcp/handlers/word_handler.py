@@ -13,6 +13,7 @@ from typing import Any
 
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
@@ -244,16 +245,33 @@ def word_add_heading(
     filename: str,
     text: str,
     level: int = 1,
+    align: str | None = None,
+    font_size: int | None = None,
+    space_before: float | None = None,
+    space_after: float | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """添加标题。"""
+    """添加标题（支持对齐、字号覆盖与段前/段后间距）。"""
     InputValidator.validate_text_length(text)
     if level < 0 or level > 9:
         raise ToolError(f"标题级别必须在 0-9 之间，得到: {level}")
     doc = _get_document(filename, session_id)
     heading = doc.add_heading(text, level=level)
+    if font_size:
+        for run in heading.runs:
+            run.font.size = Pt(font_size)
+    _apply_paragraph_format(heading, align, space_before, space_after)
     _save_document(doc, filename, session_id)
-    return {"filename": filename, "text": text, "level": level, "style": heading.style.name}
+    return {
+        "filename": filename,
+        "text": text,
+        "level": level,
+        "style": heading.style.name,
+        "align": align,
+        "font_size": font_size,
+        "space_before": space_before,
+        "space_after": space_after,
+    }
 
 
 def word_add_paragraph(
@@ -262,10 +280,13 @@ def word_add_paragraph(
     style: str | None = None,
     font_size: int | None = None,
     bold: bool = False,
+    align: str | None = None,
+    space_before: float | None = None,
+    space_after: float | None = None,
     page_break: bool = False,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    """添加段落（可选分页符）。"""
+    """添加段落（可选分页符；支持对齐与段前/段后间距）。"""
     if not text and not page_break:
         raise ToolError("text 和 page_break 至少需要一个")
     if text:
@@ -280,13 +301,78 @@ def word_add_paragraph(
             run.font.size = Pt(font_size)
         if bold:
             run.font.bold = True
+        _apply_paragraph_format(para, align, space_before, space_after)
     _save_document(doc, filename, session_id)
     return {
         "filename": filename,
         "text": text,
         "style": style,
+        "align": align,
+        "space_before": space_before,
+        "space_after": space_after,
         "page_break": page_break,
         "paragraph_idx": len(doc.paragraphs) - 1,
+    }
+
+
+def word_add_cover(
+    filename: str,
+    title: str,
+    subtitle: str = "",
+    author: str = "",
+    date: str = "",
+    org: str = "",
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """添加居中版式封面（标题/副标题/作者/日期/组织），完成后自动分页。"""
+    if not title.strip():
+        raise ToolError("title 不能为空")
+    InputValidator.validate_text_length(title)
+    for label, value in [("subtitle", subtitle), ("author", author), ("date", date), ("org", org)]:
+        if value:
+            InputValidator.validate_text_length(value)
+    doc = _get_document(filename, session_id)
+
+    def _cover_para(
+        text: str,
+        size: int,
+        bold: bool = False,
+        space_before: float = 0,
+        space_after: float = 0,
+    ) -> None:
+        para = doc.add_paragraph()
+        run = para.add_run(text)
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        _apply_paragraph_format(para, align="center", space_before=space_before, space_after=space_after)
+
+    # 顶部留白（将标题推向页面上 1/3 位置）
+    _cover_para(" ", 12)
+    _cover_para(" ", 12)
+    # 标题（用普通段落而非 Heading，避免进入目录/大纲）
+    _cover_para(title, 26, bold=True, space_before=120)
+    # 副标题
+    if subtitle:
+        _cover_para(subtitle, 16, space_before=24)
+    # 中部留白
+    for _ in range(3):
+        _cover_para(" ", 12)
+    # 底部信息
+    for text in (date, author, org):
+        if text:
+            _cover_para(text, 12, space_after=6)
+    # 封面结束，自动分页
+    doc.add_page_break()
+
+    _save_document(doc, filename, session_id)
+    return {
+        "filename": filename,
+        "title": title,
+        "subtitle": subtitle,
+        "author": author,
+        "date": date,
+        "org": org,
+        "page_break_added": True,
     }
 
 
@@ -422,6 +508,65 @@ def _make_element(tag: str, attrs: dict[str, str], text: str = "") -> Any:
     return elem
 
 
+_ALIGN_OPTIONS: dict[str, WD_ALIGN_PARAGRAPH] = {
+    "left": WD_ALIGN_PARAGRAPH.LEFT,
+    "center": WD_ALIGN_PARAGRAPH.CENTER,
+    "right": WD_ALIGN_PARAGRAPH.RIGHT,
+    "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+}
+
+
+def _apply_paragraph_format(
+    para: Any,
+    align: str | None = None,
+    space_before: float | None = None,
+    space_after: float | None = None,
+) -> None:
+    """应用段落对齐与段前/段后间距（用于封面等排版场景）。"""
+    if align:
+        key = align.strip().lower()
+        if key not in _ALIGN_OPTIONS:
+            raise ToolError(f"对齐方式无效: {align}，可选: {', '.join(_ALIGN_OPTIONS)}")
+        para.alignment = _ALIGN_OPTIONS[key]
+    pf = para.paragraph_format
+    if space_before is not None:
+        if space_before < 0:
+            raise ToolError("space_before 不能为负数")
+        pf.space_before = Pt(space_before)
+    if space_after is not None:
+        if space_after < 0:
+            raise ToolError("space_after 不能为负数")
+        pf.space_after = Pt(space_after)
+
+
+def _enable_update_fields_on_open(doc: Document) -> None:
+    """写入 <w:updateFields/>, 使文档打开时自动更新所有域（含 TOC 目录）。
+
+    不写此项时 Word 打开文档默认不执行域计算，目录只会显示占位文本，
+    需用户手动右键「更新域」或按 F9 才会生成。
+    按 OOXML 规范顺序插入（位于 compat 等元素之前），避免产生无效文档。
+    """
+    settings = doc.settings.element
+    existing = settings.find(qn("w:updateFields"))
+    if existing is not None:
+        existing.set(qn("w:val"), "true")
+        return
+    update_fields = settings.makeelement(qn("w:updateFields"), {qn("w:val"): "true"})
+    settings.insert_element_before(
+        update_fields,
+        "w:hdrShapeDefaults",
+        "w:footnotePr",
+        "w:endnotePr",
+        "w:compat",
+        "w:docVars",
+        "w:rsids",
+        "m:mathPr",
+        "w:attachedSchema",
+        "w:themeFontLang",
+        "w:clrSchemeMapping",
+    )
+
+
 def word_generate_toc(
     filename: str,
     max_level: int = 3,
@@ -453,8 +598,11 @@ def word_generate_toc(
     fldChar_end = etree.SubElement(run._r, qn("w:fldChar"))
     fldChar_end.set(qn("w:fldCharType"), "end")
 
+    # 打开文档时自动更新所有域（含 TOC），避免用户手动按 F9
+    _enable_update_fields_on_open(doc)
+
     _save_document(doc, filename, session_id)
-    return {"filename": filename, "max_level": max_level, "note": "请在 Word 中打开后右键更新域"}
+    return {"filename": filename, "max_level": max_level, "note": "打开文档后目录将自动生成"}
 
 
 # ==================== 5.1.3 格式化与操作（5 个） ====================

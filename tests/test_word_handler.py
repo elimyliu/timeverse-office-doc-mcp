@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.shared import Pt
 
 from timeverse_office_doc_mcp.common.error_handler import ToolError
 from timeverse_office_doc_mcp.handlers import word_handler
@@ -65,6 +68,27 @@ class TestWordAddHeading:
         with pytest.raises(ToolError, match="标题级别"):
             word_handler.word_add_heading(doc_path, text="test", level=99)
 
+    def test_add_heading_with_format(self, doc_path: str) -> None:
+        """标题支持对齐、字号与段前/段后间距。"""
+        word_handler.word_create_document(doc_path)
+        result = word_handler.word_add_heading(
+            doc_path,
+            text="封面标题",
+            level=0,
+            align="center",
+            font_size=26,
+            space_before=100,
+            space_after=50,
+        )
+        assert result["align"] == "center"
+        assert result["font_size"] == 26
+        doc = Document(doc_path)
+        para = doc.paragraphs[0]
+        assert para.alignment == WD_ALIGN_PARAGRAPH.CENTER
+        assert para.runs[0].font.size is not None
+        assert para.paragraph_format.space_before is not None
+        assert para.paragraph_format.space_after is not None
+
 
 class TestWordAddParagraph:
     """测试添加段落。"""
@@ -85,6 +109,69 @@ class TestWordAddParagraph:
         word_handler.word_create_document(doc_path)
         result = word_handler.word_add_paragraph(doc_path, page_break=True)
         assert result["filename"] == doc_path or Path(doc_path).name in result["filename"]
+
+    def test_alignment_and_spacing(self, doc_path: str) -> None:
+        """段落支持对齐与段前/段后间距（封面排版）。"""
+        word_handler.word_create_document(doc_path)
+        word_handler.word_add_paragraph(
+            doc_path, text="居中段落", align="center", space_before=10, space_after=20
+        )
+        doc = Document(doc_path)
+        para = doc.paragraphs[-1]
+        assert para.alignment == WD_ALIGN_PARAGRAPH.CENTER
+        assert para.paragraph_format.space_before is not None
+        assert para.paragraph_format.space_after is not None
+
+    def test_invalid_align(self, doc_path: str) -> None:
+        """无效对齐方式应报错。"""
+        word_handler.word_create_document(doc_path)
+        with pytest.raises(ToolError, match="对齐方式"):
+            word_handler.word_add_paragraph(doc_path, text="测试", align="middle")
+
+    def test_invalid_spacing(self, doc_path: str) -> None:
+        """负间距应报错。"""
+        word_handler.word_create_document(doc_path)
+        with pytest.raises(ToolError, match="space_before"):
+            word_handler.word_add_paragraph(doc_path, text="测试", space_before=-5)
+
+
+class TestWordAddCover:
+    """测试添加封面。"""
+
+    def test_add_cover(self, doc_path: str) -> None:
+        """添加居中版式封面并自动分页。"""
+        word_handler.word_create_document(doc_path)
+        result = word_handler.word_add_cover(
+            doc_path,
+            title="2026年度项目总结",
+            subtitle="技术部年度汇报",
+            author="张三",
+            date="2026-08-08",
+            org="某科技有限公司",
+        )
+        assert result["title"] == "2026年度项目总结"
+        assert result["page_break_added"] is True
+        doc = Document(doc_path)
+        # 标题段（跳过顶部 2 个空行）：居中、26pt、加粗
+        title_para = doc.paragraphs[2]
+        assert title_para.text.strip() == "2026年度项目总结"
+        assert title_para.alignment == WD_ALIGN_PARAGRAPH.CENTER
+        assert title_para.runs[0].font.size == Pt(26)
+        assert title_para.runs[0].font.bold is True
+        # 副标题段存在
+        assert doc.paragraphs[3].text.strip() == "技术部年度汇报"
+        # 底部信息存在
+        texts = " ".join(p.text for p in doc.paragraphs)
+        assert "张三" in texts and "某科技有限公司" in texts
+        # 封面后存在分页符
+        page_breaks = doc.element.body.findall(".//" + qn("w:br"))
+        assert any(br.get(qn("w:type")) == "page" for br in page_breaks)
+
+    def test_empty_title(self, doc_path: str) -> None:
+        """空标题应报错。"""
+        word_handler.word_create_document(doc_path)
+        with pytest.raises(ToolError, match="title"):
+            word_handler.word_add_cover(doc_path, title="   ")
 
 
 class TestWordAddTable:

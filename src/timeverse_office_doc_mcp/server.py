@@ -1,7 +1,7 @@
 """MCP Server 主入口 - timeverse-office-doc-mcp。
 
 使用 mcp SDK 原生 Server 类，stdio 传输。
-注册 Word(18) + Excel(15) + PPT(14) + PDF(16) + Doc(8) 共 71 个工具。
+注册 Word(19) + Excel(15) + PPT(14) + PDF(16) + Doc(8) 共 72 个工具。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from mcp.server import Server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from .common.audit_log import audit_logger
 from .common.error_handler import ToolError
@@ -22,11 +22,6 @@ from .config import ensure_dirs
 from .handlers import doc_handler, excel_handler, pdf_handler, ppt_handler, word_handler
 
 logger = logging.getLogger("timeverse_office_doc_mcp")
-
-# ==================== MCP Server ====================
-
-server = Server("timeverse-office-doc-mcp")
-
 
 # ==================== 工具定义 ====================
 
@@ -52,6 +47,13 @@ def _bool_param(desc: str, **extra: Any) -> dict[str, Any]:
     return schema
 
 
+def _num_param(desc: str, **extra: Any) -> dict[str, Any]:
+    """快捷构造 number 参数 schema。"""
+    schema = {"type": "number", "description": desc}
+    schema.update(extra)
+    return schema
+
+
 def _array_param(desc: str, items: dict[str, Any], **extra: Any) -> dict[str, Any]:
     """快捷构造 array 参数 schema。"""
     schema = {"type": "array", "description": desc, "items": items}
@@ -73,7 +75,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_create_document",
         description="创建新 Word 文档（支持模板创建与变量填充）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径（.docx）"),
@@ -89,7 +91,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_get_info",
         description="获取 Word 文档信息（detailed=true 时附带结构分析：标题层级、样式分布等）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -102,7 +104,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_extract_text",
         description="提取 Word 文本（extract_type: text=全文, outline=仅大纲, all=两者）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -116,7 +118,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_list_documents",
         description="列出指定目录内的所有 Word 文档",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {"directory": _str_param("目录路径")},
             "required": ["directory"],
@@ -125,7 +127,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_copy_document",
         description="复制 Word 文档",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "source": _str_param("源文件路径"),
@@ -137,13 +139,17 @@ TOOL_DEFINITIONS: list[Tool] = [
     # ==================== 5.1.2 内容编辑 ====================
     Tool(
         name="word_add_heading",
-        description="添加标题（Heading 样式）",
-        inputSchema={
+        description="添加标题（Heading 样式，支持对齐、字号覆盖与段前/段后间距）",
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
                 "text": _str_param("标题文本"),
                 "level": _int_param("标题级别（0=Title, 1-9=Heading 1-9）", default=1),
+                "align": _str_param("对齐方式（left, center, right, justify）"),
+                "font_size": _int_param("字号（磅），覆盖样式默认字号"),
+                "space_before": _num_param("段前间距（磅）"),
+                "space_after": _num_param("段后间距（磅）"),
                 "session_id": SESSION_ID_PARAM,
             },
             "required": ["filename", "text"],
@@ -151,8 +157,8 @@ TOOL_DEFINITIONS: list[Tool] = [
     ),
     Tool(
         name="word_add_paragraph",
-        description="添加段落（page_break=true 时同时插入分页符）",
-        inputSchema={
+        description="添加段落（支持对齐与段前/段后间距；page_break=true 时同时插入分页符）",
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -160,6 +166,9 @@ TOOL_DEFINITIONS: list[Tool] = [
                 "style": _str_param("段落样式名（如 Normal, List Bullet 等）"),
                 "font_size": _int_param("字号（磅）"),
                 "bold": _bool_param("是否加粗", default=False),
+                "align": _str_param("对齐方式（left, center, right, justify）"),
+                "space_before": _num_param("段前间距（磅）"),
+                "space_after": _num_param("段后间距（磅）"),
                 "page_break": _bool_param("是否在段落前插入分页符", default=False),
                 "session_id": SESSION_ID_PARAM,
             },
@@ -167,9 +176,26 @@ TOOL_DEFINITIONS: list[Tool] = [
         },
     ),
     Tool(
+        name="word_add_cover",
+        description="添加居中版式封面（标题/副标题/作者/日期/组织），完成后自动分页",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "filename": _str_param("文档文件路径"),
+                "title": _str_param("封面标题（必填）"),
+                "subtitle": _str_param("副标题"),
+                "author": _str_param("作者"),
+                "date": _str_param("日期"),
+                "org": _str_param("组织/公司名称"),
+                "session_id": SESSION_ID_PARAM,
+            },
+            "required": ["filename", "title"],
+        },
+    ),
+    Tool(
         name="word_add_table",
         description="添加表格（支持数据填充与表头样式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -188,7 +214,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_add_image",
         description="插入图片到文档",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -202,7 +228,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_add_list",
         description="添加列表（项目符号或编号）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -218,7 +244,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_set_header_footer",
         description="设置页眉页脚（可选页码）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -233,7 +259,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_generate_toc",
         description="生成目录（Table of Contents，需在 Word 中更新域）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -248,7 +274,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_format_text",
         description="格式化文本片段（加粗、斜体、颜色、字体）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -267,7 +293,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_format_table",
         description="格式化表格（表头加粗、底纹）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -283,7 +309,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_search_replace",
         description="搜索替换文档中的文本",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -297,7 +323,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_delete_paragraph",
         description="删除指定段落",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -310,7 +336,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_create_style",
         description="创建自定义段落样式",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -328,7 +354,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="word_extract_tables",
         description="提取所有表格数据（JSON 或 CSV 格式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -342,7 +368,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_create_workbook",
         description="创建新 Excel 工作簿（支持模板）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径（.xlsx）"),
@@ -357,7 +383,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_get_overview",
         description="获取 Excel 工作簿概览（工作表列表及各表行列数）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -369,7 +395,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_manage_sheet",
         description="管理工作表（action: add=添加, delete=删除, rename=重命名, copy=复制）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -387,7 +413,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_read",
         description="读取单元格或区域数据（range_str: 单元格如 A1 或区域如 A1:C10）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -401,7 +427,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_write",
         description="写入数据到单元格或区域（data 为二维数组，单值写 [[value]]）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -419,7 +445,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_modify_row",
         description="插入或删除行（action: insert=插入, delete=删除）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -435,7 +461,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_modify_column",
         description="插入或删除列（action: insert=插入, delete=删除）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -452,7 +478,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_format_cell",
         description="格式化单元格（字体、颜色、对齐、边框）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -474,7 +500,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_apply_formula",
         description="应用公式到单元格",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -489,7 +515,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_create_chart",
         description="创建图表（bar/line/pie）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -505,7 +531,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_freeze_panes",
         description="冻结窗格",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -519,7 +545,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_sort_data",
         description="排序数据区域",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -535,7 +561,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_add_conditional_format",
         description="添加条件格式",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -555,7 +581,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_analyze_data",
         description="数据统计分析（描述统计、空值检测、类型推断）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -569,7 +595,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="excel_find_duplicates",
         description="查找重复数据",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("工作簿文件路径"),
@@ -585,7 +611,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_create_presentation",
         description="创建新 PPT 演示文稿（支持模板）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径（.pptx）"),
@@ -599,7 +625,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_get_overview",
         description="获取 PPT 演示文稿概览（list_slides=true 时附带幻灯片概览）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -612,7 +638,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_slide",
         description="添加幻灯片（layout: 0-8 对应 slide_layouts）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -626,7 +652,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_manage_slide",
         description="管理幻灯片（action: delete=删除, move=移动, copy=复制）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -642,7 +668,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_text",
         description="添加文本框（单位为英寸）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -662,7 +688,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_image",
         description="插入图片到幻灯片（单位为英寸）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -680,7 +706,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_table",
         description="添加表格到幻灯片（单位为英寸）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -703,7 +729,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_chart",
         description="添加图表（bar/line/pie；data 含 categories 与 series）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -719,7 +745,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_add_shape",
         description="添加形状（rectangle/rounded_rectangle/oval/triangle/textbox）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -739,7 +765,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_set_background",
         description="设置幻灯片背景色",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -753,7 +779,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_apply_theme",
         description="应用主题配色（blue/green/orange/dark）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -766,7 +792,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_slide_notes",
         description="演讲者备注管理（action: get=获取, set=设置）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -782,7 +808,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_extract_text",
         description="提取所有幻灯片文本",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -794,7 +820,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="ppt_get_structure",
         description="获取演示文稿结构（幻灯片与形状详情）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("演示文稿文件路径"),
@@ -808,7 +834,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_get_info",
         description="获取 PDF 元信息（analyze=true 时附带结构分析：页面类型、文本密度等）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径（.pdf）"),
@@ -820,7 +846,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_merge",
         description="合并多个 PDF 文件",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "files": _array_param("待合并的 PDF 文件路径列表", {"type": "string"}),
@@ -832,7 +858,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_split",
         description="拆分 PDF（page_ranges 格式: 1-3,4-6,7-9）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -845,7 +871,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_rotate_page",
         description="旋转指定页面（angle: 90/180/270）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -859,7 +885,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_extract_text",
         description="提取 PDF 文本（支持指定页范围与布局模式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -872,7 +898,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_extract_tables",
         description="提取 PDF 表格数据（JSON 或 CSV）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -885,7 +911,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_extract_images",
         description="提取 PDF 中的图片",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -898,7 +924,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_search_text",
         description="搜索 PDF 中的文本",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -911,7 +937,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_ocr_text",
         description="OCR 文本识别（扫描件/图片型 PDF，需安装 tesseract）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -926,7 +952,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_add_text",
         description="添加文本到指定页面（Overlay 合并模式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -944,7 +970,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_add_image",
         description="添加图片到指定页面（Overlay 合并模式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -962,7 +988,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_add_watermark",
         description="添加水印（遍历所有页面）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -977,7 +1003,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_add_annotation",
         description="添加注释或书签（annotation_type: highlight/text/link/bookmark）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -995,7 +1021,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_manage_security",
         description="PDF 安全管理（action: encrypt=加密, decrypt=解密）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -1011,7 +1037,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_create_from_template",
         description="从模板创建 PDF（支持变量填充）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "template_name": _str_param("模板名称"),
@@ -1024,7 +1050,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="pdf_fill_form",
         description="填充 PDF 交互式表单字段（AcroForm）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("PDF 文件路径"),
@@ -1039,7 +1065,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_list_templates",
         description="列出所有可用模板（可选按格式过滤）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "format": _str_param("按格式过滤（word/excel/ppt/pdf，可选）"),
@@ -1050,7 +1076,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_get_template_info",
         description="获取模板详情（含占位符列表与预览）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "template_name": _str_param("模板名称"),
@@ -1061,7 +1087,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_manage_template",
         description="管理模板（action: register=注册, delete=删除）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "action": _str_param("操作类型（register/delete）"),
@@ -1078,7 +1104,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_apply_template",
         description="从模板创建文档并自动填充变量（支持所有格式）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "template_name": _str_param("模板名称"),
@@ -1091,7 +1117,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_extract_placeholders",
         description="扫描提取模板中的占位符变量",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "template_name": _str_param("模板名称"),
@@ -1104,7 +1130,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_open_session",
         description="打开文档到内存 Session（返回 session_id）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "filename": _str_param("文档文件路径"),
@@ -1116,7 +1142,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_close_session",
         description="关闭 Session（save=True 时先保存再关闭）",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "session_id": _str_param("待关闭的 Session ID"),
@@ -1129,7 +1155,7 @@ TOOL_DEFINITIONS: list[Tool] = [
     Tool(
         name="doc_list_sessions",
         description="列出所有活跃 Session",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {},
             "required": [],
@@ -1148,6 +1174,7 @@ TOOL_HANDLERS: dict[str, Any] = {
     "word_copy_document": word_handler.word_copy_document,
     "word_add_heading": word_handler.word_add_heading,
     "word_add_paragraph": word_handler.word_add_paragraph,
+    "word_add_cover": word_handler.word_add_cover,
     "word_add_table": word_handler.word_add_table,
     "word_add_image": word_handler.word_add_image,
     "word_add_list": word_handler.word_add_list,
@@ -1222,25 +1249,26 @@ TOOL_HANDLERS: dict[str, Any] = {
 # ==================== MCP 请求处理 ====================
 
 
-@server.list_tools()  # type: ignore[untyped-decorator]
-async def list_tools() -> list[Tool]:
+async def on_list_tools(ctx: Any, params: Any) -> ListToolsResult:
     """返回所有可用工具。"""
-    return TOOL_DEFINITIONS
+    return ListToolsResult(tools=TOOL_DEFINITIONS)
 
 
-@server.call_tool()  # type: ignore[untyped-decorator]
-async def call_tool(
-    name: str,
-    arguments: dict[str, Any],
-) -> list[TextContent]:
+async def on_call_tool(ctx: Any, params: Any) -> CallToolResult:
     """处理工具调用：路由到对应 handler 并返回结果。"""
+    name = params.name
+    arguments = params.arguments or {}
     handler = TOOL_HANDLERS.get(name)
     if handler is None:
-        return [TextContent(type="text", text=f"Error: 未知工具 '{name}'")]
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Error: 未知工具 '{name}'")],
+            isError=True,
+        )
 
     start = time.time()
     success = True
     error_msg: str | None = None
+    is_error = False
 
     try:
         result = handler(**arguments)
@@ -1254,11 +1282,13 @@ async def call_tool(
         success = False
         error_msg = str(e)
         text = f"Error: {e}"
+        is_error = True
     except Exception as e:
         success = False
         error_msg = str(e)
         logger.exception("Unhandled error in tool %s", name)
         text = f"Error: {e}"
+        is_error = True
 
     duration_ms = int((time.time() - start) * 1000)
     audit_logger.log_operation(
@@ -1270,7 +1300,19 @@ async def call_tool(
         error=error_msg,
     )
 
-    return [TextContent(type="text", text=text)]
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        isError=is_error,
+    )
+
+
+# ==================== MCP Server ====================
+
+server = Server(
+    "timeverse-office-doc-mcp",
+    on_list_tools=on_list_tools,
+    on_call_tool=on_call_tool,
+)
 
 
 # ==================== 传输层 ====================
